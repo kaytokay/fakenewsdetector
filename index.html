@@ -23,24 +23,28 @@
       border: 1px solid rgba(51, 65, 85, 0.6);
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
     }
-    :root { color-scheme: light; --ink:#17211d; --muted:#68756f; --line:#e2e9e3; --paper:#f4f6f2; --panel:#fff; --accent:#176b54; }
+    :root { color-scheme: dark; --ink:#e8f0ed; --muted:#91a19b; --line:#1c2927; --paper:#080b0d; --panel:#0d1216; --accent:#12c99a; }
     body { background:var(--paper)!important; color:var(--ink)!important; padding:24px!important; }
-    body > div { max-width:1280px!important; }
-    .glow-card { background:var(--panel)!important; color:var(--ink)!important; border:1px solid var(--line)!important; box-shadow:0 8px 28px rgba(25,45,34,.055)!important; backdrop-filter:none!important; }
-    header.glow-card { background:#173c32!important; color:#f7fbf8!important; border:0!important; box-shadow:0 16px 40px rgba(23,60,50,.16)!important; }
-    header .text-slate-400, header .text-slate-300 { color:#c4d8ce!important; }
-    .bg-slate-950\/60,.bg-slate-950\/50,.bg-slate-900\/90,.bg-slate-900\/50,.bg-slate-950 { background:#f7f9f6!important; }
-    .text-slate-100,.text-slate-200,.text-slate-300 { color:#26332d!important; }
-    .text-slate-400 { color:#68756f!important; }
-    .text-slate-500 { color:#7d8983!important; }
-    .border-slate-800,.border-slate-800\/80,.border-slate-800\/90,.border-slate-700\/80 { border-color:var(--line)!important; }
-    input:not([type=file]),textarea { background:#fff!important; color:var(--ink)!important; border-color:#d6dfd8!important; }
+    body > div { max-width:1120px!important; }
+    .glow-card { background:linear-gradient(145deg,#0e1518,#0b1014)!important; color:var(--ink)!important; border:1px solid var(--line)!important; box-shadow:0 14px 38px rgba(0,0,0,.24)!important; backdrop-filter:none!important; }
+    header.glow-card { background:linear-gradient(120deg,#0c1716,#10171c)!important; color:#f0faf6!important; border:1px solid #18352d!important; box-shadow:0 16px 40px rgba(0,0,0,.3)!important; }
+    header .text-slate-400, header .text-slate-300 { color:#91aaa0!important; }
+    .bg-slate-950\/60,.bg-slate-950\/50,.bg-slate-900\/90,.bg-slate-900\/50,.bg-slate-950 { background:#090e12!important; }
+    .text-slate-100,.text-slate-200,.text-slate-300 { color:#dce8e3!important; }
+    .text-slate-400 { color:#91a19b!important; }
+    .text-slate-500 { color:#71817a!important; }
+    .border-slate-800,.border-slate-800\/80,.border-slate-800\/90,.border-slate-700\/80 { border-color:#1d2a2a!important; }
+    input:not([type=file]),textarea { background:#090e12!important; color:var(--ink)!important; border-color:#253534!important; }
     .tab-btn { min-height:48px; }
-    .tab-btn.active-tab { background:#e4f1e9!important; border-color:#a9cdb6!important; color:#155b42!important; box-shadow:none!important; }
+    .tab-btn.active-tab { background:rgba(18,201,154,.13)!important; border-color:#167c62!important; color:#52e5ba!important; box-shadow:0 0 20px rgba(18,201,154,.08)!important; }
     button { cursor:pointer; }
     button:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid #8ec5a3; outline-offset:2px; }
-    #resultNotice { border:1px solid #cbdccf; background:#edf5ee; color:#365d47; }
-    #errorNotice { border:1px solid #efc8bf; background:#fff2ef; color:#8a3425; }
+    #resultNotice { border:1px solid #21483b; background:#0d1b17; color:#9ad8bd; }
+    #errorNotice { border:1px solid #59312e; background:#211211; color:#f0a99c; }
+    #assessmentBox { border-color:#24433a!important; background:#0a1313!important; }
+    #assessmentBox h3,#assessmentBox p,#assessmentEvidence { color:#bdcec8!important; }
+    #verdictHeading { line-height:1.15; }
+    .tab-btn, button { transition:all .18s ease; }
     @media (max-width:640px) { body { padding:12px!important; } }
   </style>
 </head>
@@ -654,6 +658,7 @@ function renderResult(data) {
   }
 
   const isFake = Boolean(data.elevated_signals);
+  const faceFlagged = data.modality === "Image" && Number.isFinite(data.face_signal_pct) && data.face_signal_pct >= 50;
   const isNewsCheck = data.modality === "Text" || data.modality === "Screenshot" || data.modality === "URL";
   const isInconclusive = data.assessment?.status === "INCONCLUSIVE";
   document.getElementById("gaugePanel").classList.toggle("hidden", isNewsCheck);
@@ -662,13 +667,13 @@ function renderResult(data) {
   const pill = document.getElementById("verdictPill");
   pill.textContent = data.assessment?.status || (isFake ? "ELEVATED SIGNALS" : "NO STRONG SIGNALS");
   pill.className = `px-3 py-1 text-xs font-bold rounded-lg uppercase tracking-wider ${
-    isNewsCheck || isInconclusive ? "bg-amber-50 text-amber-800 border border-amber-200" : isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
+    isNewsCheck || isInconclusive || faceFlagged ? "bg-amber-950/70 text-amber-300 border border-amber-800" : isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
   }`;
 
   const h = document.getElementById("verdictHeading");
   h.textContent = isNewsCheck || isInconclusive || data.modality === "Image" ? data.prediction : `${data.prediction} (${data.confidence_pct}%)`;
   const authenticityColor = data.assessment?.status === "LIKELY AUTHENTIC ARTICLE" ? "text-emerald-700" : "text-amber-700";
-  h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? authenticityColor : isInconclusive ? "text-amber-500" : isFake ? "text-rose-400" : "text-emerald-400"}`;
+  h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? authenticityColor : isInconclusive || faceFlagged ? "text-amber-400" : isFake ? "text-rose-400" : "text-emerald-400"}`;
 
   document.getElementById("verdictPreview").textContent = data.preview || "";
 
@@ -691,7 +696,7 @@ function renderResult(data) {
   }
 
   // Update Semi-Circular Gauge
-  const fakeScore = isInconclusive ? (data.signal_pct ?? data.confidence_pct) : isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
+  const fakeScore = Number.isFinite(data.gauge_value_pct) ? data.gauge_value_pct : isInconclusive ? (data.signal_pct ?? data.confidence_pct) : isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
   gaugeChart.data.datasets[0].data = [fakeScore, 100 - fakeScore];
   gaugeChart.data.datasets[0].backgroundColor = [
     fakeScore >= 50 ? "#f43f5e" : "#10b981",

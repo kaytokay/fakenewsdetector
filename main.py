@@ -736,14 +736,14 @@ def compute_academic_metrics(y_true_binary: int, confidence: float) -> dict:
 
 def generate_tampering_mask_and_bbox(image: Image.Image, is_fake: bool) -> tuple[str, str]:
     """
-    Draws facial bounding boxes (Red for fake, Green for real) and creates a binary
-    tampering localization mask (Paper 3 & Paper 4).
+    Draws facial bounding boxes (Red for an elevated model signal, cyan otherwise)
+    and creates a heuristic mask. The box color is not an authenticity verdict.
     """
     img_np = np.array(image)
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     annotated = img_np.copy()
     mask = np.zeros(gray.shape, dtype=np.uint8)
-    color = (255, 0, 0) if is_fake else (0, 255, 0)  # RGB
+    color = (255, 0, 0) if is_fake else (0, 190, 220)  # RGB
 
     faces = []
     try:
@@ -1046,12 +1046,13 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     face_model_names = (["ViT"] if face_crop is not None and df_clf else []) + (["EfficientNet-B0 CNN"] if cnn_score is not None else [])
     face_model_ran = bool(face_crop is not None and face_model_scores)
     face_ensemble = round(sum(face_model_scores) / len(face_model_scores), 2) if face_model_ran else None
-    available_signals = ([ai_gen_score] if whole_score is not None or legacy_ai_score is not None else []) + ([face_ensemble] if face_ensemble is not None else [])
-    signal_pct = round(max(available_signals), 2) if available_signals else 0.0
-    is_fake = bool((whole_score is not None and whole_score >= 65.0) or (face_ensemble is not None and face_ensemble >= 50.0)
-                   or (whole_score is None and legacy_ai_score is not None and legacy_ai_score >= 65.0))
-    analysis_ran = bool(available_signals)
-    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2)
+    # Keep the whole-image AI-generation result separate from face-forgery
+    # classifiers. Their scores measure different tasks and are not comparable.
+    primary_ai_score = whole_score if whole_score is not None else legacy_ai_score
+    signal_pct = round(primary_ai_score, 2) if primary_ai_score is not None else 0.0
+    is_fake = bool(primary_ai_score is not None and primary_ai_score >= 65.0)
+    analysis_ran = primary_ai_score is not None
+    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2) if analysis_ran else 0.0
 
     breakdown = {
         "Whole-Image AI Generation Signal (%)": ai_gen_score,
@@ -1066,11 +1067,11 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         "Whole_Image_AI_Detector": f"{whole_score}%" if whole_score is not None else "Unavailable",
         "Whole_Image_AI_Threshold": "65% calibrated screening threshold" if whole_score is not None else "Unavailable",
         "Legacy_Full_Image_Model_Output": f"{legacy_ai_score}%" if legacy_ai_score is not None else "Unavailable",
-        "AI_Generator_Output": f"{ai_gen_score}%" if available_signals else "Unavailable",
+        "AI_Generator_Output": f"{ai_gen_score}%" if analysis_ran else "Unavailable",
         "Face_Crop_Deepfake_Output": f"{deepfake_score}%" if face_crop is not None and df_clf else "Unavailable",
         "EfficientNet_CNN_Output": f"{cnn_score}%" if cnn_score is not None else "Unavailable",
         "Face_Detection_Status": "Face crop analyzed" if face_crop is not None else "Unavailable in this OpenCV build" if not face_detection_available else "No face detected",
-        "Detection_Basis": "Whole-image AI-generation model plus face-region forgery models where present" if analysis_ran else "No image classifier available",
+        "Detection_Basis": "Whole-image AI-generation score; face-forgery models reported separately" if analysis_ran else "Whole-image AI-generation model unavailable",
         "FFT_Spectral_Energy_Ratio": f"{forensics['hf_ratio']}",
         "ELA_Compression_Std": f"{forensics['ela_std']}",
         "Color_Covariance": f"{forensics['color_corr']}",
@@ -1084,7 +1085,10 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     else:
         ann_b64, mask_b64 = "", ""
 
-    prediction_str = ("Elevated synthetic-content signals" if is_fake else "No strong synthetic-content signals") if analysis_ran else "Inconclusive — no image model was available"
+    face_flagged = face_ensemble is not None and face_ensemble >= 50.0
+    prediction_str = ("Elevated whole-image AI-generation signal" if is_fake else "No strong whole-image AI-generation signal") if analysis_ran else "Inconclusive — no whole-image AI model was available"
+    if analysis_ran and not is_fake and face_flagged:
+        prediction_str += "; face model flagged for review"
     model_evidence = []
     if whole_score is not None:
         model_evidence.append({"label": "Whole-image AI-generation detector", "detail": f"Community Forensics calibrated score {whole_score}%; published screening threshold 65%. It evaluates a whole-image crop, not just a face; this is not proof of origin."})
@@ -1093,13 +1097,13 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     if legacy_ai_score is not None and whole_score is not None:
         model_evidence.append({"label": "Legacy model comparison", "detail": f"Older full-image model score: {legacy_ai_score}%. Kept as a secondary comparison and excluded from the calibrated primary whole-image score."})
     model_evidence.extend([
-        {"label": "Face-region forgery models", "detail": f"{'+'.join(face_model_names)} mean score {face_ensemble}% on the detected face crop." if face_model_ran else "No face was detected; face-specific models were skipped. Whole-image analysis still ran independently."},
+        {"label": "Face-region forgery models", "detail": f"{'+'.join(face_model_names)} screening score {face_ensemble}% on the detected face crop; {'flagged for review' if face_flagged else 'below the 50% screening threshold'}. This is a separate task from detecting AI-generated whole images, and is not a calibrated probability." if face_model_ran else "No face was detected; face-specific models were skipped. Whole-image analysis ran independently."},
         {"label": "Pixel-level statistics", "detail": f"Compared local high-frequency residual energy across {pixel_stats['patches_analyzed']} patches. The heatmap highlights variation, not confirmed edits."},
         {"label": "Metadata and provenance", "detail": f"EXIF, C2PA manifest validation, and SHA-256 fingerprint are reported as source clues; missing metadata does not mean synthetic."},
     ])
     assessment = {
-        "status": "MODEL SIGNAL" if is_fake else "NO STRONG SIGNALS" if analysis_ran else "INCONCLUSIVE",
-        "summary": "Whole-image AI-generation analysis runs independently of face detection; face-region forgery classifiers run additionally when a face is present. Scores are model screening signals, not proof of synthetic origin or authenticity. Pixel statistics, metadata, and provenance add context but are not verdicts." if analysis_ran else "No image classifier was available for this scan. Pixel statistics and metadata alone cannot establish whether the content is synthetic.",
+        "status": "MODEL SIGNAL" if is_fake else "FACE MODEL FLAG" if face_flagged else "NO STRONG SIGNALS" if analysis_ran else "INCONCLUSIVE",
+        "summary": "The gauge shows the whole-image AI-generation detector only. Face-forgery classifiers are reported separately because their scores measure a different task and are not calibrated probabilities. All model outputs are screening signals, not proof; pixel statistics, metadata, and provenance add context." if analysis_ran else "The whole-image detector was unavailable. Face-model results, if present, are separate screening signals; pixel statistics and metadata alone cannot establish whether content is synthetic.",
         "evidence": model_evidence,
     }
 
@@ -1109,11 +1113,13 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         "elevated_signals": is_fake,
         "confidence_pct": conf_pct,
         "signal_pct": signal_pct,
-        "preview": f"Scanned whole image{', plus face crop' if face_model_ran else ' (no face required)'} | strongest model signal: {signal_pct}%",
+        "gauge_value_pct": signal_pct,
+        "face_signal_pct": face_ensemble,
+        "preview": f"Whole-image AI-generation score: {signal_pct}%" + (f" | separate face-forgery score: {face_ensemble}%" if face_model_ran else " | no face crop analyzed"),
         "metadata": metadata,
         "assessment": assessment,
-        "gauge_title": "Estimated synthetic-content signal",
-        "gauge_label": "Whole-image and face-model signals; not proof",
+        "gauge_title": "Whole-image AI-generation signal",
+        "gauge_label": "Separate from face-forgery screening; not proof",
         "annotated_image_b64": ann_b64,
         "tampering_mask_b64": mask_b64,
         "ela_heatmap_b64": forensics["ela_b64"],
