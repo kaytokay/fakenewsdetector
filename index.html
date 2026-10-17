@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Guardian-FDT | Media & Claim Screening</title>
+  <title>TruthShield | Misinformation & Synthetic Media Screening</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -45,7 +45,7 @@
   </style>
 </head>
 <body class="bg-[#090d16] text-slate-100 min-h-screen p-4 md:p-8 font-sans antialiased">
-<div class="max-w-7xl mx-auto space-y-6">
+  <div class="max-w-7xl mx-auto space-y-6">
 
   <!-- ── Top Header Bar ── -->
   <header class="glow-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-950/80">
@@ -56,10 +56,10 @@
         </div>
         <div>
           <h1 class="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 bg-clip-text text-transparent">
-            Guardian-FDT Forensic Suite
+            TruthShield
           </h1>
           <p class="text-xs text-slate-400 font-medium mt-0.5">
-            A screening workspace for claims, screenshots, images, and video
+            Multimodal screening for misinformation and AI-generated or manipulated content
           </p>
         </div>
       </div>
@@ -89,10 +89,10 @@
         <span>📱</span> 2. Screenshot (OCR)
       </button>
       <button onclick="switchTab('image')" id="tab-image" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>🖼️</span> 3. Image Deepfake
+        <span>🖼️</span> 3. Image Analysis
       </button>
       <button onclick="switchTab('video')" id="tab-video" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>🎬</span> 4. Video Deepfake
+        <span>🎬</span> 4. Video Analysis
       </button>
       <button onclick="switchTab('url')" id="tab-url" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
         <span>🌐</span> 5. Web URL
@@ -104,6 +104,7 @@
       <!-- Panel 1: News Text -->
       <div id="panel-text" class="space-y-4">
         <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Article Headline or Statement</label>
+        <p class="text-xs text-slate-500">The result includes the language-model signals and any matching news references found for review. Model scores are estimates, not proof.</p>
         <textarea id="inputText" rows="4"
           class="w-full p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 resize-none transition"
           placeholder="Paste a claim, headline, or article excerpt (at least 10 characters)…"></textarea>
@@ -117,42 +118,42 @@
       <!-- Panel 2: Screenshot -->
       <div id="panel-screenshot" class="hidden space-y-4">
         <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Screenshot or Social Forward</label>
-        <p class="text-xs text-slate-400">Text extraction and image classifiers provide screening signals. The image preview is illustrative and does not pinpoint confirmed tampering.</p>
+        <p class="text-xs text-slate-400">We extract and screen the screenshot’s text, then show matching news references. The whole-page image-model score is reported separately and does not decide whether the claim is true.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputScreenshot" accept="image/*"
             class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-500 cursor-pointer" />
         </div>
         <button onclick="submitFile('/analyze-screenshot','inputScreenshot')"
           class="px-7 py-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-amber-600/30">
-          Scan Screenshot & Splicing
+          Check Screenshot Text & References
         </button>
       </div>
 
       <!-- Panel 3: Image -->
       <div id="panel-image" class="hidden space-y-4">
         <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Image or Portrait File</label>
-        <p class="text-xs text-slate-400">Evaluates general AI synthesis (Gemini, Diffusion, DALL-E, Midjourney), facial deepfakes, EXIF metadata, and dimension anomalies.</p>
+        <p class="text-xs text-slate-400">Screens the full image for AI-generation patterns, inspects local pixel statistics and provenance metadata, and runs separate face-forgery models only when a face is detected.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputImage" accept="image/*"
             class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-600 file:text-white hover:file:bg-rose-500 cursor-pointer" />
         </div>
         <button onclick="submitFile('/analyze-image','inputImage')"
           class="px-7 py-3 bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-rose-600/30">
-          Analyze Image & Deepfake
+          Analyze Whole Image
         </button>
       </div>
 
       <!-- Panel 4: Video -->
       <div id="panel-video" class="hidden space-y-4">
         <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Video File (.mp4 / .webm)</label>
-        <p class="text-xs text-slate-400">OpenCV extracts temporal frame slices across video timeline to plot temporal anomaly coordinates (FDT &gt;50% threshold).</p>
+        <p class="text-xs text-slate-400">Scans every decoded frame for whole-frame AI-generation signals and pixel statistics; adds face-forgery models when faces are present. Metadata and exploratory rPPG are supporting context.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputVideo" accept="video/*"
             class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer" />
         </div>
         <button onclick="submitFile('/analyze-video','inputVideo')"
           class="px-7 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-purple-600/30">
-          Analyze Video Timeline
+          Scan Every Video Frame
         </button>
       </div>
 
@@ -171,7 +172,7 @@
   </div>
 
   <div id="errorNotice" class="hidden p-4 rounded-xl text-sm" role="alert"></div>
-  <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed">A model score is an estimate. Related coverage means similar reporting was found; it does not confirm that a claim is true.</div>
+  <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed">Article authenticity checks look for a close headline match at a publisher. This does not fact-check every claim or prove a screenshot is unaltered.</div>
 
   <!-- ── Loading Indicator ── -->
   <div id="loadingBar" class="hidden glow-card p-5 rounded-2xl flex items-center gap-4 border border-indigo-500/30">
@@ -200,11 +201,19 @@
         </div>
         <h2 id="verdictHeading" class="text-3xl font-extrabold tracking-tight">--</h2>
         <p id="verdictPreview" class="text-xs text-slate-300 leading-relaxed max-w-2xl bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 mono">--</p>
+        <div id="assessmentBox" class="hidden max-w-2xl rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600">Why this result</h3>
+            <p id="assessmentSummary" class="text-xs text-slate-600 mt-1"></p>
+            <p id="headlineMatchScore" class="hidden text-sm font-bold text-emerald-700 mt-2">Headline match: <span id="headlineMatchValue"></span>% <span class="text-[10px] font-medium text-slate-500">(word overlap, not a truth probability)</span></p>
+          </div>
+          <ul id="assessmentEvidence" class="space-y-2 text-xs text-slate-700"></ul>
+        </div>
       </div>
 
       <!-- Right: Circular Risk Gauge -->
-      <div class="lg:col-span-4 flex flex-col items-center justify-center bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-        <span class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Estimated synthetic signal</span>
+      <div id="gaugePanel" class="lg:col-span-4 flex flex-col items-center justify-center bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+        <span id="gaugeTitle" class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Estimated synthetic signal</span>
         <div class="relative w-44 h-28 flex items-center justify-center">
           <canvas id="gaugeChart"></canvas>
           <div class="absolute bottom-1 text-center">
@@ -220,7 +229,7 @@
     <div id="webVerificationBox" class="hidden bg-emerald-950/40 p-4 rounded-xl border border-emerald-800/60 space-y-2.5">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-          <span>🌐</span> Related coverage found
+          <span>🌐</span> Publisher references for authenticity check
         </span>
         <span id="webMatchBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700 font-bold mono">
           Search context
@@ -245,11 +254,11 @@
       <span class="text-[11px] mono text-indigo-400">Error Level + 2D FFT Lattice Analysis</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+      <div id="bboxCard" class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
         <span class="text-[11px] font-semibold text-slate-400 block truncate">1. Face detection preview</span>
         <img id="bboxImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="Face ROI" />
       </div>
-      <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+      <div id="maskCard" class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
         <span class="text-[11px] font-semibold text-slate-400 block truncate">2. Heuristic mask preview</span>
         <img id="maskImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="Tampering Mask" />
       </div>
@@ -261,6 +270,10 @@
         <span class="text-[11px] font-semibold text-purple-400 block truncate">4. 2D FFT Power Spectrum</span>
         <img id="fftImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="2D FFT Spectrum" />
       </div>
+      <div id="pixelStatsCard" class="hidden bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+        <span class="text-[11px] font-semibold text-cyan-400 block truncate">Local pixel residual statistics</span>
+        <img id="pixelStatsImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="Patch residual heatmap" />
+      </div>
     </div>
   </div>
 
@@ -268,10 +281,10 @@
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
     
     <!-- Chart 1: Horizontal Forensic Feature Breakdown -->
-    <div class="lg:col-span-7 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
+    <div id="breakdownCard" class="hidden lg:col-span-7 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
       <div class="flex justify-between items-center">
         <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
-          <span>📊</span> Multi-Signal Forensic Breakdown
+          <span>📊</span> Model & Analysis Signals
         </h3>
         <span class="text-[11px] text-slate-400 font-mono">TransStacking Fusion</span>
       </div>
@@ -281,12 +294,12 @@
     </div>
 
     <!-- Chart 2: Video Temporal Anomaly Timeline -->
-    <div class="lg:col-span-5 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
+    <div id="videoTimelineCard" class="hidden lg:col-span-5 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
       <div class="flex justify-between items-center">
         <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
           <span>🎬</span> Temporal Video Timeline
         </h3>
-        <span class="text-[11px] text-slate-400 font-mono">Guardian-AI Slices</span>
+        <span class="text-[11px] text-slate-400 font-mono">Every decoded frame</span>
       </div>
       <div class="h-64 relative">
         <canvas id="videoTimelineChart"></canvas>
@@ -316,22 +329,22 @@
             <tr>
               <td class="py-2 px-3 text-slate-300">Accuracy</td>
               <td id="mAcc" class="py-2 px-3 text-emerald-400 font-bold">--</td>
-              <td class="py-2 px-3 text-slate-500">97.89% (EuroSAT/CDDB)</td>
+              <td class="py-2 px-3 text-slate-500">Not independently validated</td>
             </tr>
             <tr>
               <td class="py-2 px-3 text-slate-300">Precision</td>
               <td id="mPrecision" class="py-2 px-3 text-slate-200 font-bold">--</td>
-              <td class="py-2 px-3 text-slate-500">96.20% (Guardian-AI)</td>
+              <td class="py-2 px-3 text-slate-500">Not independently validated</td>
             </tr>
             <tr>
               <td class="py-2 px-3 text-slate-300">Recall</td>
               <td id="mRecall" class="py-2 px-3 text-slate-200 font-bold">--</td>
-              <td class="py-2 px-3 text-slate-500">95.60% (Guardian-AI)</td>
+              <td class="py-2 px-3 text-slate-500">Not independently validated</td>
             </tr>
             <tr>
               <td class="py-2 px-3 text-slate-300">F1-Score</td>
               <td id="mF1" class="py-2 px-3 text-indigo-400 font-bold">--</td>
-              <td class="py-2 px-3 text-slate-500">95.90% (CDDB Benchmark)</td>
+              <td class="py-2 px-3 text-slate-500">Not independently validated</td>
             </tr>
             <tr>
               <td class="py-2 px-3 text-slate-300">Matthews Correlation (MCC)</td>
@@ -481,7 +494,7 @@ const videoTimelineChart = new Chart(document.getElementById("videoTimelineChart
   data: {
     labels: ["0.0s"],
     datasets: [{
-      label: "Frame Fake Probability (%)",
+      label: "Face-Region Forgery Signal (%)",
       data: [0],
       borderColor: "#a855f7",
       backgroundColor: "rgba(168, 85, 247, 0.15)",
@@ -490,13 +503,24 @@ const videoTimelineChart = new Chart(document.getElementById("videoTimelineChart
       tension: 0.35,
       pointRadius: 4,
       pointBackgroundColor: "#a855f7"
+    }, {
+      label: "Whole-Image AI-Generation Signal (%)",
+      data: [0],
+      borderColor: "#0ea5e9",
+      backgroundColor: "rgba(14, 165, 233, 0.10)",
+      borderWidth: 2,
+      fill: false,
+      tension: 0.25,
+      pointRadius: 2,
+      pointBackgroundColor: "#0ea5e9",
+      spanGaps: false
     }]
   },
   options: {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { display: false }
+      legend: { display: true, labels: { color: "#94a3b8", boxWidth: 12, font: { size: 10 } } }
     },
     scales: {
       x: { grid: { color: '#e1e8e2' } },
@@ -585,15 +609,6 @@ function refreshGlobalCharts(s) {
   ];
   modalityChart.update();
 
-  if (s.latest_bar_breakdown && Object.keys(s.latest_bar_breakdown).length) {
-    updateBarChart(s.latest_bar_breakdown);
-  }
-
-  if (s.latest_video_timeline && s.latest_video_timeline.length) {
-    videoTimelineChart.data.labels = s.latest_video_timeline.map(f => f.time_label);
-    videoTimelineChart.data.datasets[0].data = s.latest_video_timeline.map(f => f.fake_prob);
-    videoTimelineChart.update();
-  }
 }
 
 function updateBarChart(breakdown) {
@@ -611,6 +626,7 @@ function updateBarChart(breakdown) {
   barChart.data.datasets[0].data = data;
   barChart.data.datasets[0].backgroundColor = colors;
   barChart.update();
+  document.getElementById("breakdownCard").classList.remove("hidden");
 }
 
 function escapeHtml(value) {
@@ -626,37 +642,74 @@ function renderResult(data) {
   document.getElementById("loadingBar").classList.add("hidden");
   document.getElementById("verdictCard").classList.remove("hidden");
 
+  const timelineCard = document.getElementById("videoTimelineCard");
+  if (data.modality === "Video" && Array.isArray(data.video_timeline) && data.video_timeline.length) {
+    videoTimelineChart.data.labels = data.video_timeline.map(frame => frame.time_label);
+    videoTimelineChart.data.datasets[0].data = data.video_timeline.map(frame => frame.face_signal_pct);
+    videoTimelineChart.data.datasets[1].data = data.video_timeline.map(frame => frame.whole_image_ai_pct);
+    videoTimelineChart.update();
+    timelineCard.classList.remove("hidden");
+  } else {
+    timelineCard.classList.add("hidden");
+  }
+
   const isFake = Boolean(data.elevated_signals);
+  const isNewsCheck = data.modality === "Text" || data.modality === "Screenshot" || data.modality === "URL";
+  const isInconclusive = data.assessment?.status === "INCONCLUSIVE";
+  document.getElementById("gaugePanel").classList.toggle("hidden", isNewsCheck);
   document.getElementById("modalityBadge").textContent = data.modality;
 
   const pill = document.getElementById("verdictPill");
-  pill.textContent = isFake ? "ELEVATED SIGNALS" : "NO STRONG SIGNALS";
+  pill.textContent = data.assessment?.status || (isFake ? "ELEVATED SIGNALS" : "NO STRONG SIGNALS");
   pill.className = `px-3 py-1 text-xs font-bold rounded-lg uppercase tracking-wider ${
-    isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
+    isNewsCheck || isInconclusive ? "bg-amber-50 text-amber-800 border border-amber-200" : isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
   }`;
 
   const h = document.getElementById("verdictHeading");
-  h.textContent = `${data.prediction} (${data.confidence_pct}%)`;
-  h.className = `text-3xl font-extrabold tracking-tight ${isFake ? "text-rose-400" : "text-emerald-400"}`;
+  h.textContent = isNewsCheck || isInconclusive || data.modality === "Image" ? data.prediction : `${data.prediction} (${data.confidence_pct}%)`;
+  const authenticityColor = data.assessment?.status === "LIKELY AUTHENTIC ARTICLE" ? "text-emerald-700" : "text-amber-700";
+  h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? authenticityColor : isInconclusive ? "text-amber-500" : isFake ? "text-rose-400" : "text-emerald-400"}`;
 
   document.getElementById("verdictPreview").textContent = data.preview || "";
 
+  const assessmentBox = document.getElementById("assessmentBox");
+  if (data.assessment && Array.isArray(data.assessment.evidence)) {
+    document.getElementById("assessmentSummary").textContent = data.assessment.summary || "";
+    const headlineMatchScore = document.getElementById("headlineMatchScore");
+    if (Number.isFinite(data.assessment.authenticity_score_pct)) {
+      document.getElementById("headlineMatchValue").textContent = data.assessment.authenticity_score_pct;
+      headlineMatchScore.classList.remove("hidden");
+    } else {
+      headlineMatchScore.classList.add("hidden");
+    }
+    document.getElementById("assessmentEvidence").innerHTML = data.assessment.evidence.map(item => `
+      <li><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.detail)}</li>
+    `).join("");
+    assessmentBox.classList.remove("hidden");
+  } else {
+    assessmentBox.classList.add("hidden");
+  }
+
   // Update Semi-Circular Gauge
-  const fakeScore = isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
+  const fakeScore = isInconclusive ? (data.signal_pct ?? data.confidence_pct) : isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
   gaugeChart.data.datasets[0].data = [fakeScore, 100 - fakeScore];
   gaugeChart.data.datasets[0].backgroundColor = [
     fakeScore >= 50 ? "#f43f5e" : "#10b981",
     "#1e293b"
   ];
   gaugeChart.update();
+  document.getElementById("gaugeTitle").textContent = data.gauge_title || "Estimated synthetic signal";
+  document.getElementById("gaugeLabel").textContent = data.gauge_label || "Model-estimated signal, not proof";
   document.getElementById("gaugeValue").textContent = `${fakeScore}%`;
   document.getElementById("gaugeValue").className = `text-2xl font-black mono ${fakeScore >= 50 ? "text-rose-400" : "text-emerald-400"}`;
+  document.getElementById("bboxCard").classList.toggle("hidden", !data.annotated_image_b64);
+  document.getElementById("maskCard").classList.toggle("hidden", !data.tampering_mask_b64);
 
   // Populate Real-Time Web Fact-Check Box
   const webBox = document.getElementById("webVerificationBox");
   if (data.web_verification && data.web_verification.corroborated) {
     webBox.classList.remove("hidden");
-    document.getElementById("webMatchBadge").textContent = `${data.web_verification.match_count} related result(s)`;
+    document.getElementById("webMatchBadge").textContent = `${data.web_verification.match_count} reference result(s)`;
     const list = document.getElementById("webSourcesList");
     list.innerHTML = data.web_verification.sources.map(s => `
       <div class="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
@@ -665,6 +718,8 @@ function renderResult(data) {
             ${escapeHtml(s.title)}
           </a>
           <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(s.source)} &bull; ${escapeHtml(s.pubDate)}</span>
+          ${s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-emerald-700">Headline match</span>' : ''}
+          ${s.is_fact_check ? '<span class="ml-2 text-[10px] font-bold text-amber-700">Fact-check / disputed-claim coverage</span>' : ''}
         </div>
         <a href="${escapeHtml(safeHttpUrl(s.link))}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-200 px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700 font-semibold whitespace-nowrap">
           Read Outlet &rarr;
@@ -687,7 +742,7 @@ function renderResult(data) {
   }
 
   // Update Visual Inspection (Bounding Box, Tampering Mask, ELA Heatmap, 2D FFT Spectrum)
-  const hasVisual = data.annotated_image_b64 || data.ela_heatmap_b64 || data.fft_spectrum_b64;
+  const hasVisual = data.annotated_image_b64 || data.ela_heatmap_b64 || data.fft_spectrum_b64 || data.pixel_statistics_heatmap_b64;
   if (hasVisual) {
     document.getElementById("visualPreviewBox").classList.remove("hidden");
     if (data.annotated_image_b64) {
@@ -709,6 +764,13 @@ function renderResult(data) {
       document.getElementById("fftImg").src = data.fft_spectrum_b64;
     } else {
       fftCard.classList.add("hidden");
+    }
+    const pixelStatsCard = document.getElementById("pixelStatsCard");
+    if (data.pixel_statistics_heatmap_b64) {
+      pixelStatsCard.classList.remove("hidden");
+      document.getElementById("pixelStatsImg").src = data.pixel_statistics_heatmap_b64;
+    } else {
+      pixelStatsCard.classList.add("hidden");
     }
   } else {
     document.getElementById("visualPreviewBox").classList.add("hidden");
@@ -737,11 +799,15 @@ async function callApi(url, options) {
     }
     const data = await res.json();
     renderResult(data);
-    document.getElementById("resultNotice").textContent = !data.web_verification
+    document.getElementById("resultNotice").textContent = data.assessment?.status === "LIKELY AUTHENTIC ARTICLE"
+      ? "Likely authentic article: a close headline match was found in the listed publisher references. This does not verify every claim or prove a screenshot is unaltered."
+      : data.assessment?.status === "UNVERIFIED" && data.web_verification?.corroborated
+        ? "Related references were found, but there was no close publisher headline match. Article authenticity remains unverified."
+        : !data.web_verification
       ? "This model score is an estimate and should be reviewed alongside the original media and its source."
       : data.web_verification.corroborated
-        ? `Related coverage found in ${data.web_verification.match_count} result(s). This is context only and does not validate the claim.`
-        : "No related coverage was found in this search. That does not mean the claim is false or true.";
+        ? `Reference articles found: ${data.web_verification.match_count}. They do not establish article authenticity without a headline match.`
+        : "No matching publisher references were found. Article authenticity remains unverified.";
   } catch (e) {
     document.getElementById("loadingBar").classList.add("hidden");
     errorBox.textContent = `Analysis could not be completed: ${e.message}`;

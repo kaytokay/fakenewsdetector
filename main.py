@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime
 from io import BytesIO
@@ -21,6 +22,8 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 import cv2
 import easyocr
 import numpy as np
+import torch
+from functools import lru_cache
 from PIL import ExifTags, Image, ImageChops, ImageEnhance
 import re
 import requests
@@ -35,6 +38,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from textblob import TextBlob
 from transformers import pipeline
+from torchvision import models, transforms
+from torch import nn
 
 # ---------------------------------------------------------------------------
 # Global model store & live session telemetry
@@ -54,7 +59,7 @@ live_analytics = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load multimodal AI models cleanly at startup; release resources on shutdown."""
-    print("[INIT] Loading Guardian-FDT Deepfake & Misinformation AI Models…")
+    print("[INIT] Loading TruthShield misinformation and synthetic-media analysis models…")
 
     # 1. Text Fake News Classifier (Fine-tuned BERT)
     try:
@@ -66,7 +71,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[WARN] Text classifier failed: {e}")
 
-    # 2. Primary AI-Generated Image & Portrait Classifier (detects synthetic faces and generative models)
+    # 2. Full-image AI detector. Its score is only a screening signal; it can misclassify real photos.
     try:
         ml_models["ai_image_detector"] = pipeline(
             "image-classification",
@@ -74,25 +79,15 @@ async def lifespan(app: FastAPI):
         )
         print("[OK] 2. dima806/ai_vs_real_image_detection loaded.")
     except Exception as e:
-        print(f"[WARN] dima806/ai_vs_real failed, fallback to umm-maybe: {e}")
-        try:
-            ml_models["ai_image_detector"] = pipeline(
-                "image-classification",
-                model="umm-maybe/AI-image-detector",
-            )
-            print("[OK] Fallback image classifier loaded.")
-        except Exception as fallback_error:
-            print(f"[WARN] Fallback image classifier failed: {fallback_error}")
+        print(f"[WARN] AI image classifier failed: {e}")
 
-    # 3. Secondary Diffusion / Scene Classifier (Diffusion, Gemini, DALL-E)
+    # Full-scene detector trained across contemporary generators; uses its
+    # published calibrated threshold and checksum-verified ONNX artifact.
     try:
-        ml_models["diffusion_detector"] = pipeline(
-            "image-classification",
-            model="umm-maybe/AI-image-detector",
-        )
-        print("[OK] 3. umm-maybe/AI-image-detector loaded.")
+        ml_models["whole_image_detector"] = load_whole_image_detector()
+        print("[OK] Community Forensics frontier whole-image detector loaded.")
     except Exception as e:
-        print(f"[WARN] umm-maybe detector notice: {e}")
+        print(f"[WARN] Whole-image AI detector failed: {e}")
 
     # 4. Facial Deepfake ViT (GAN face-swaps, DeepFaceLab, FaceForensics++)
     try:
@@ -103,6 +98,25 @@ async def lifespan(app: FastAPI):
         print("[OK] 4. ViT Facial Deepfake Detector loaded.")
     except Exception as e:
         print(f"[WARN] Facial deepfake detector failed: {e}")
+
+    # EfficientNet-B0 CNN trained on FaceForensics++ C23; use as a second
+    # face-forgery signal alongside the ViT, never as a standalone proof.
+    try:
+        state = torch.hub.load_state_dict_from_url(
+            "https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23/resolve/main/efficientnet_b0_ffpp_c23.pth",
+            map_location="cpu", file_name="efficientnet_b0_ffpp_c23.pth", progress=False,
+        )
+        cnn = models.efficientnet_b0(weights=None)
+        cnn.classifier[1] = nn.Linear(cnn.classifier[1].in_features, 2)
+        cnn.load_state_dict(state)
+        cnn.eval()
+        ml_models["cnn_deepfake_detector"] = {
+            "model": cnn,
+            "preprocess": transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()]),
+        }
+        print("[OK] EfficientNet-B0 FF++ CNN detector loaded.")
+    except Exception as e:
+        print(f"[WARN] EfficientNet CNN detector failed: {e}")
 
     # 4. EasyOCR reader for news screenshots
     try:
@@ -117,7 +131,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Guardian-FDT Multimodal Deepfake & Fake News API",
+    title="TruthShield Multimodal Misinformation & Synthetic Media Analysis API",
     description="Multi-modal forensic analysis suite with live academic telemetry",
     version="2.1.0",
     lifespan=lifespan,
@@ -206,9 +220,8 @@ def fetch_public_url(url: str):
 
 def extract_exif_metadata(image: Image.Image) -> tuple[dict, float]:
     """
-    Inspects camera EXIF tags.
-    GAN / Diffusion / Gemini synthetic fakes consistently strip camera metadata.
-    Returns (metadata_dict, exif_risk_penalty_pct).
+    Inspects camera EXIF tags and returns neutral metadata with no risk penalty.
+    Missing tags are common after sharing, editing, or screenshot capture.
     """
     exif_data = image.getexif()
     info = {
@@ -216,8 +229,8 @@ def extract_exif_metadata(image: Image.Image) -> tuple[dict, float]:
         "Resolution": f"{image.width}x{image.height}",
     }
     if not exif_data:
-        info["EXIF_Status"] = "Null / Stripped (High Synthetic Indicator)"
-        return info, 30.0
+        info["EXIF_Status"] = "Missing or stripped (common after sharing; not a synthetic verdict)"
+        return info, 0.0
 
     info["EXIF_Status"] = "Present (Camera Hardware Tags Found)"
     for tag_id, val in exif_data.items():
@@ -225,6 +238,210 @@ def extract_exif_metadata(image: Image.Image) -> tuple[dict, float]:
         if isinstance(val, (str, int, float)) and len(str(val)) < 60:
             info[str(tag_name)] = str(val)
     return info, 0.0
+
+
+def provenance_fingerprint(contents: bytes, media_kind: str, media_type: str) -> dict:
+    """Record a stable content fingerprint and whether C2PA bytes are present.
+
+    This is chain-of-custody metadata for this scan; it does not prove who created
+    the asset. C2PA presence is only detected here, not cryptographically verified.
+    """
+    info = {
+        "Asset_SHA256": hashlib.sha256(contents).hexdigest(),
+        "Asset_Bytes": len(contents),
+        "Provenance_Note": f"Fingerprint recorded at scan time ({media_kind}); origin is unverified.",
+    }
+    try:
+        from c2pa import Context, Reader, Settings
+        settings = Settings.from_dict({"verify": {"verify_cert_anchors": True, "remote_manifest_fetch": False}})
+        with Context(settings) as context:
+            with Reader(media_type, BytesIO(contents), context=context) as reader:
+                report = json.loads(reader.json())
+        validation = report.get("validation_status", [])
+        active_name = report.get("active_manifest")
+        active = report.get("manifests", {}).get(active_name, {}) if active_name else {}
+        info["C2PA_Manifest"] = "Present and parsed"
+        info["C2PA_Validation"] = "No validation errors reported" if not validation else json.dumps(validation, ensure_ascii=False)[:500]
+        info["C2PA_Claim_Generator"] = str(active.get("claim_generator", "Not declared"))[:160]
+    except ImportError:
+        info["C2PA_Manifest"] = "Verifier unavailable; embedded marker " + ("present" if b"c2pa" in contents.lower() else "not found")
+        info["C2PA_Validation"] = "Not verified"
+    except Exception as exc:
+        info["C2PA_Manifest"] = "No readable manifest found" if b"c2pa" not in contents.lower() else "Manifest marker present but could not be parsed"
+        info["C2PA_Validation"] = f"Not verified ({type(exc).__name__})"
+    return info
+
+
+def efficientnet_fake_score(image: Image.Image) -> float | None:
+    """Return the CNN fake-class score for a face crop, if its checkpoint loaded."""
+    entry = ml_models.get("cnn_deepfake_detector")
+    if not entry:
+        return None
+    tensor = entry["preprocess"](image.convert("RGB")).unsqueeze(0)
+    with torch.inference_mode():
+        logits = entry["model"](tensor)
+        return round(float(torch.softmax(logits, dim=1)[0, 1].item() * 100), 2)
+
+
+def load_whole_image_detector() -> dict:
+    import onnxruntime as ort
+
+    cache_path = os.path.join(torch.hub.get_dir(), "checkpoints", "community_forensics_frontier_fp16.onnx")
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    expected_sha256 = "d75791ba2fa59146025d342cfaafa9ddeab24af117642a94f752ee4c1619375d"
+    cached_hash = hashlib.sha256(open(cache_path, "rb").read()).hexdigest() if os.path.exists(cache_path) else None
+    if cached_hash != expected_sha256:
+        temp_path = cache_path + ".download"
+        urllib.request.urlretrieve(
+            "https://huggingface.co/Thermostatic/community-forensics-frontier-detector-2026-08/resolve/main/community_forensics_frontier_fp16.onnx",
+            temp_path,
+        )
+        with open(temp_path, "rb") as checkpoint:
+            downloaded_hash = hashlib.sha256(checkpoint.read()).hexdigest()
+        if downloaded_hash != expected_sha256:
+            os.remove(temp_path)
+            raise ValueError("Whole-image detector checkpoint checksum did not match the published artifact.")
+        os.replace(temp_path, cache_path)
+    session = ort.InferenceSession(cache_path, providers=["CPUExecutionProvider"])
+    return {"session": session, "input_name": session.get_inputs()[0].name}
+
+
+def whole_image_ai_score(image: Image.Image) -> float | None:
+    """Score the entire image using the calibrated general synthetic-image model."""
+    entry = ml_models.get("whole_image_detector")
+    if not entry:
+        return None
+    image = image.convert("RGB")
+    scale = 440.0 / min(image.size)
+    resized = image.resize((round(image.width * scale), round(image.height * scale)), Image.Resampling.BICUBIC)
+    left = (resized.width - 384) // 2
+    top = (resized.height - 384) // 2
+    cropped = resized.crop((left, top, left + 384, top + 384))
+    array = np.asarray(cropped, dtype=np.float32) / 255.0
+    array = (array - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    tensor = np.transpose(array, (2, 0, 1))[None].astype(np.float32)
+    logit = float(np.ravel(entry["session"].run(None, {entry["input_name"]: tensor})[0])[0])
+    calibrated = 1.0 / (1.0 + np.exp(-np.clip(logit - 0.7403357915937764, -60, 60)))
+    return round(float(calibrated * 100.0), 2)
+
+
+def compute_pixel_statistics(image: Image.Image, grid_size: int = 16) -> dict:
+    """Create a local high-frequency residual map and descriptive patch statistics."""
+    gray = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2GRAY)
+    normalized = cv2.resize(gray, (grid_size * 16, grid_size * 16), interpolation=cv2.INTER_AREA)
+    smooth = cv2.GaussianBlur(normalized, (0, 0), 1.2)
+    residual = cv2.absdiff(normalized, smooth)
+    patches = residual.reshape(grid_size, 16, grid_size, 16).transpose(0, 2, 1, 3)
+    patch_energy = patches.astype(np.float32).std(axis=(2, 3))
+    mean_energy = float(patch_energy.mean())
+    variation = float(patch_energy.std())
+    lo, hi = np.percentile(patch_energy, [5, 95])
+    normalized_map = np.clip((patch_energy - lo) / max(float(hi - lo), 1e-6) * 255, 0, 255).astype(np.uint8)
+    enlarged = cv2.resize(normalized_map, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_CUBIC)
+    heat = cv2.applyColorMap(enlarged, cv2.COLORMAP_TURBO)
+    ok, encoded = cv2.imencode(".jpg", heat)
+    heat_b64 = base64.b64encode(encoded).decode("ascii") if ok else ""
+    return {
+        "patch_residual_mean": round(mean_energy, 3),
+        "patch_residual_std": round(variation, 3),
+        "patches_analyzed": grid_size * grid_size,
+        "heatmap_b64": f"data:image/jpeg;base64,{heat_b64}" if heat_b64 else "",
+    }
+
+
+def compute_frame_pixel_statistics(frame_bgr: np.ndarray) -> tuple[float, float]:
+    """Cheap all-frame patch residual statistics for video temporal analysis."""
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, (256, 256), interpolation=cv2.INTER_AREA)
+    residual = cv2.absdiff(gray, cv2.GaussianBlur(gray, (0, 0), 1.2)).astype(np.float32)
+    patch = residual.reshape(16, 16, 16, 16).transpose(0, 2, 1, 3).std(axis=(2, 3))
+    return round(float(patch.mean()), 3), round(float(patch.std()), 3)
+
+
+@lru_cache(maxsize=1)
+def face_cascade():
+    if not callable(getattr(cv2, "CascadeClassifier", None)):
+        return None
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    return None if cascade.empty() else cascade
+
+
+def detect_face_box(image: Image.Image):
+    """Fast face box for image/video analysis, using a single cached cascade."""
+    rgb = image.convert("RGB")
+    scale = min(1.0, 720.0 / max(rgb.size))
+    small = rgb.resize((max(1, int(rgb.width * scale)), max(1, int(rgb.height * scale)))) if scale < 1 else rgb
+    try:
+        gray = cv2.cvtColor(np.asarray(small), cv2.COLOR_RGB2GRAY)
+        cascade = face_cascade()
+        if cascade is None:
+            return None
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+        if len(faces) == 0:
+            return None
+        x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
+        return tuple(int(round(v / scale)) for v in (x, y, w, h))
+    except (AttributeError, cv2.error, OSError):
+        return None
+
+
+def rppg_consistency(regional_rgb: dict, fps: float) -> dict:
+    """Estimate cheek pulse-band periodicity and cross-cheek agreement, not a verdict."""
+    left = regional_rgb.get("left", [])
+    right = regional_rgb.get("right", [])
+    count = min(len(left), len(right))
+    duration = count / fps if fps > 0 else 0
+    if count < 30 or duration < 10:
+        return {"status": "Insufficient face-video duration for rPPG (need at least 10 seconds)", "samples": count}
+
+    def interpolate_region(samples):
+        values = np.asarray(samples, dtype=np.float64)
+        valid = np.isfinite(values).all(axis=1)
+        if valid.mean() < 0.7:
+            return None
+        positions = np.arange(count)
+        return np.column_stack([np.interp(positions, positions[valid], values[valid, channel]) for channel in range(3)])
+
+    def pulse_features(samples):
+        rgb = np.asarray(samples, dtype=np.float64)
+        means = np.maximum(rgb.mean(axis=0), 1.0)
+        r, g, b = (rgb / means - 1.0).T
+        x = 3.0 * r - 2.0 * g
+        y = 1.5 * r + g - 1.5 * b
+        scale = np.std(x) / max(np.std(y), 1e-8)
+        pulse = x - scale * y
+        pulse -= pulse.mean()
+        pulse *= np.hanning(count)
+        spectrum = np.abs(np.fft.rfft(pulse)) ** 2
+        frequencies = np.fft.rfftfreq(count, d=1.0 / fps)
+        band = (frequencies >= 0.7) & (frequencies <= 3.0)
+        if not np.any(band) or float(spectrum[band].sum()) <= 1e-9:
+            return None, 0.0
+        band_indices = np.flatnonzero(band)
+        peak = int(band_indices[np.argmax(spectrum[band])])
+        bpm = round(float(frequencies[peak] * 60), 1)
+        neighborhood = (frequencies >= frequencies[peak] - 0.15) & (frequencies <= frequencies[peak] + 0.15)
+        concentration = float(spectrum[neighborhood].sum() / max(spectrum[band].sum(), 1e-9))
+        return bpm, concentration
+
+    left_values = interpolate_region(left[:count])
+    right_values = interpolate_region(right[:count])
+    if left_values is None or right_values is None:
+        return {"status": "Insufficient stable face-region coverage for rPPG", "samples": count}
+    left_bpm, left_quality = pulse_features(left_values)
+    right_bpm, right_quality = pulse_features(right_values)
+    agreement = round(max(0.0, 1.0 - abs(left_bpm - right_bpm) / 60.0), 3) if left_bpm is not None and right_bpm is not None else None
+    return {
+        "status": "Exploratory rPPG consistency estimate; not a deepfake verdict",
+        "samples": count,
+        "duration_seconds": round(duration, 2),
+        "left_cheek_bpm_estimate": left_bpm,
+        "right_cheek_bpm_estimate": right_bpm,
+        "left_signal_concentration": round(left_quality, 3),
+        "right_signal_concentration": round(right_quality, 3),
+        "cross_cheek_agreement": agreement,
+        "limitations": "Sensitive to motion, lighting, skin exposure, compression, and frame rate; plausible pulse signals can also occur in deepfakes.",
+    }
 
 
 def extract_fake_score(preds: list) -> float:
@@ -323,7 +540,7 @@ def verify_news_on_web(text: str) -> dict:
     query_tokens = important_tokens[:5]
     query = ' '.join(query_tokens).strip()
     if not query:
-        return {"corroborated": False, "match_count": 0, "sources": [], "query": ""}
+        return {"corroborated": False, "direct_match": False, "match_count": 0, "sources": [], "query": ""}
 
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -341,6 +558,10 @@ def verify_news_on_web(text: str) -> dict:
                 'allegedly', 'speculation', 'mystery', 'possible', 'ufo'
             }
             valid_sources = []
+            input_tokens = {
+                token.lower() for token in re.findall(r"[a-z0-9]+", text.lower())
+                if len(token) > 2 and token.lower() not in stop
+            }
 
             for item in items[:8]:
                 title = item.findtext("title", default="").strip()
@@ -353,6 +574,16 @@ def verify_news_on_web(text: str) -> dict:
 
                 t_lower = title.lower()
                 is_debunk = any(dw in t_lower for dw in debunk_words)
+                headline = re.split(r"\s[-–|]\s", title, maxsplit=1)[0]
+                headline_tokens = {
+                    token.lower() for token in re.findall(r"[a-z0-9]+", headline.lower())
+                    if len(token) > 2 and token.lower() not in stop
+                }
+                title_overlap = (
+                    len(headline_tokens & input_tokens) / len(headline_tokens)
+                    if len(headline_tokens) >= 4 else 0.0
+                )
+                headline_match = title_overlap >= 0.75
 
                 # Match key entity tokens
                 matches = sum(
@@ -360,26 +591,32 @@ def verify_news_on_web(text: str) -> dict:
                     if (q.lower() in t_lower or (len(q) > 4 and q[:4].lower() in t_lower))
                 )
 
-                # Semantic check: Requires majority entity overlap and no debunking flag
+                # Keep matching debunks and fact-checks as references too; dropping these
+                # would hide precisely the sources a user needs to assess a disputed claim.
                 overlap_ratio = matches / len(query_tokens) if query_tokens else 0.0
-                if (matches >= 3 or overlap_ratio >= 0.6) and matches >= 2 and not is_debunk:
+                if (matches >= 3 or overlap_ratio >= 0.6) and matches >= 2:
                     valid_sources.append({
                         "title": title,
                         "link": link,
                         "source": source_name,
-                        "pubDate": pub_date
+                        "pubDate": pub_date,
+                        "is_fact_check": is_debunk,
+                        "headline_match": headline_match,
+                        "headline_match_pct": round(title_overlap * 100, 1),
                     })
 
             is_corroborated = len(valid_sources) >= 1
             return {
                 "corroborated": is_corroborated,
+                "direct_match": any(source["headline_match"] for source in valid_sources),
+                "authenticity_score_pct": max((source["headline_match_pct"] for source in valid_sources if source["headline_match"]), default=None),
                 "match_count": len(valid_sources),
                 "sources": valid_sources[:4],
                 "query": query
             }
     except Exception as e:
         print(f"[WARN] Live news search notice: {e}")
-        return {"corroborated": False, "match_count": 0, "sources": [], "query": query}
+        return {"corroborated": False, "direct_match": False, "match_count": 0, "sources": [], "query": query}
 def compute_image_forensics(image: Image.Image) -> dict:
     """
     Real Pixel-Level Deep Forensic Analysis (Paper 1 & Paper 4):
@@ -516,7 +753,9 @@ def generate_tampering_mask_and_bbox(image: Image.Image, is_fake: bool) -> tuple
             detected = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
             if len(detected) > 0:
                 faces = detected
-    except Exception:
+    except (AttributeError, cv2.error, OSError):
+        # Some OpenCV builds omit Haar cascade support. Keep previews available
+        # without claiming a detected face or failing the entire image analysis.
         faces = []
 
     hh, ww = gray.shape
@@ -548,6 +787,23 @@ def generate_tampering_mask_and_bbox(image: Image.Image, is_fake: bool) -> tuple
     ann_b64 = base64.b64encode(buf_ann).decode("utf-8")
     mask_b64 = base64.b64encode(buf_mask).decode("utf-8")
     return f"data:image/jpeg;base64,{ann_b64}", f"data:image/jpeg;base64,{mask_b64}"
+
+
+def largest_face_crop(image: Image.Image) -> Image.Image | None:
+    """Return a padded crop of the largest detected face for face-specific analysis."""
+    rgb = image.convert("RGB")
+    face = detect_face_box(rgb)
+    if face is None:
+        return None
+    x, y, width, height = face
+    pad_x, pad_y = int(width * 0.2), int(height * 0.2)
+    bounds = (
+        max(0, x - pad_x),
+        max(0, y - pad_y),
+        min(rgb.width, x + width + pad_x),
+        min(rgb.height, y + height + pad_y),
+    )
+    return rgb.crop(bounds)
 
 
 def record_telemetry(
@@ -595,6 +851,7 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
 
     # 1. Live Web Fact-Checking Grounding
     web_check = await run_in_threadpool(verify_news_on_web, clean)
+    direct_match = bool(web_check.get("direct_match"))
 
     # 2. BERT stylistic classification
     res = await run_in_threadpool(classifier, clean, truncation=True, max_length=512)
@@ -605,16 +862,25 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
 
     # Related coverage is useful context, but a search result cannot verify a claim.
     fake_prob = raw_fake_prob
-    is_fake = fake_prob >= 50.0
-    verdict = "Elevated misinformation signals" if is_fake else "No strong misinformation signals"
+    is_fake = fake_prob >= 50.0 and not direct_match
+    verdict = "Likely authentic article — matching publisher headline found" if direct_match else "Unverified — no direct publisher headline match found"
     conf_pct = fake_prob if is_fake else round(100 - fake_prob, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(clean)
 
     breakdown = {
-        "BERT Fake Linguistic Score (%)": fake_prob,
-        "Authenticity Score (%)": round(100 - fake_prob, 2),
+        "Text Classifier Pattern Score (%)": fake_prob,
         "Subjectivity / Bias (%)": subjectivity,
+    }
+    assessment = {
+        "status": "LIKELY AUTHENTIC ARTICLE" if direct_match else "UNVERIFIED",
+        "authenticity_score_pct": web_check.get("authenticity_score_pct"),
+        "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet; it does not verify every claim in the article." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity or whether its claims are true.",
+        "evidence": [
+            {"label": "Text classifier signal", "detail": f"{fake_prob}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
+            {"label": "Article authenticity", "detail": "A close match for the headline was found in the listed publisher references." if direct_match else "No direct headline match was found; authenticity remains unverified."},
+            {"label": "Claim accuracy", "detail": "A matching article does not confirm every factual claim it contains."},
+        ],
     }
     record_telemetry(modality_override, is_fake, conf_pct, sentiment, breakdown)
 
@@ -633,6 +899,7 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
             "Sentiment": f"{sentiment} ({polarity})",
         },
         "web_verification": web_check,
+        "assessment": assessment,
         "bar_chart_data": breakdown,
         "live_stats": live_analytics,
     }
@@ -663,40 +930,51 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
 
     # B — Live Web Grounding / Fact-Checking Search
     web_check = await run_in_threadpool(verify_news_on_web, text)
+    direct_match = bool(web_check.get("direct_match"))
 
     # C — BERT stylistic analysis
     t_res = await run_in_threadpool(t_clf, text, truncation=True, max_length=512)
     t_pred = t_res[0]
     raw_text_fake = t_pred["score"] * 100 if t_pred["label"] == "LABEL_0" else (100 - t_pred["score"] * 100)
 
-    # D — Visual Splicing Check (dampened because screenshots naturally have sharp raster UI fonts)
+    # D — Visual signal is reported separately: a whole-page screenshot is not a suitable
+    # input for an AI-generated-image classifier, and that score must not decide claim truth.
     i_preds = await run_in_threadpool(img_clf, image)
     raw_visual_fake = extract_fake_score(i_preds)
-    visual_fake = round(raw_visual_fake * 0.30, 2)
 
-    # E — Grounded Multimodal Synthesis
+    # E — News claim screening is based on OCR text; keep screenshot appearance separate.
     text_fake = round(raw_text_fake, 2)
-    combined_fake = round(text_fake * 0.75 + visual_fake * 0.25, 2)
-    is_fake = combined_fake >= 50.0
-    verdict = "Elevated manipulation signals" if is_fake else "No strong manipulation signals"
+    combined_fake = text_fake
+    is_fake = text_fake >= 50.0 and not direct_match
+    verdict = "Likely authentic article — matching publisher headline found" if direct_match else "Unverified — no direct publisher headline match found"
     conf_pct = combined_fake if is_fake else round(100.0 - combined_fake, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(text)
 
     breakdown = {
-        "OCR Text Fake Probability (%)": text_fake,
-        "Visual Splicing Index (%)": visual_fake,
+        "OCR Text Classifier Pattern Score (%)": text_fake,
+        "Whole Screenshot Image Pattern Score (%)": raw_visual_fake,
         "Subjectivity Index (%)": subjectivity,
-        "Synthesized Risk (%)": combined_fake if is_fake else round(100 - conf_pct, 2),
     }
     record_telemetry("Screenshot", is_fake, conf_pct, sentiment, breakdown)
-    ann_b64, mask_b64 = generate_tampering_mask_and_bbox(image, is_fake)
 
     metadata = {
         "OCR_Words_Detected": len(text.split()),
         "Related_Coverage": f"{web_check['match_count']} related result(s)" if web_check["corroborated"] else "No related results found",
         "Search_Query": web_check["query"],
         "Sentiment": f"{sentiment} ({polarity})",
+        "Whole_Screenshot_AI_Image_Signal": f"{raw_visual_fake}% (not used for claim verdict)",
+    }
+
+    assessment = {
+        "status": "LIKELY AUTHENTIC ARTICLE" if direct_match else "UNVERIFIED",
+        "authenticity_score_pct": web_check.get("authenticity_score_pct"),
+        "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet. It does not prove the screenshot is unaltered, the photo is genuine, or every claim is accurate." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity; the whole-page image score cannot determine whether its embedded photo is AI-generated.",
+        "evidence": [
+            {"label": "OCR text classifier signal", "detail": f"{text_fake}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
+            {"label": "Whole-page image classifier", "detail": f"{raw_visual_fake}% image-pattern score. It evaluates the complete screenshot, not a separately cropped news photo, so it does not affect the result."},
+            {"label": "Article authenticity", "detail": "A close match for the article headline was found in the listed publisher references." if direct_match else "No direct headline match was found; authenticity remains unverified."},
+        ],
     }
 
     return {
@@ -708,8 +986,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
         "preview": f"OCR Extracted: {text[:180]}…",
         "metadata": metadata,
         "web_verification": web_check,
-        "annotated_image_b64": ann_b64,
-        "tampering_mask_b64": mask_b64,
+        "assessment": assessment,
         "bar_chart_data": breakdown,
         "live_stats": live_analytics,
     }
@@ -721,9 +998,10 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
 @app.post("/analyze-image")
 async def analyze_image_endpoint(file: UploadFile = File(...)):
     ai_clf = ml_models.get("ai_image_detector")
-    diff_clf = ml_models.get("diffusion_detector")
     df_clf = ml_models.get("deepfake_detector")
-    if not (ai_clf or diff_clf or df_clf):
+    cnn_entry = ml_models.get("cnn_deepfake_detector")
+    whole_detector = ml_models.get("whole_image_detector")
+    if not (whole_detector or ai_clf or df_clf or cnn_entry):
         raise HTTPException(status_code=500, detail="AI image detection models are still loading.")
 
     contents = await file.read()
@@ -734,82 +1012,113 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid image file format.")
 
     # 1. Camera Hardware EXIF analysis
-    metadata, exif_penalty = extract_exif_metadata(raw)
+    metadata, _ = extract_exif_metadata(raw)
 
     # 2. Deep Pixel Forensics: Error Level Analysis (ELA) + 2D FFT Frequency Spectrum
     forensics = await run_in_threadpool(compute_image_forensics, rgb)
+    pixel_stats = await run_in_threadpool(compute_pixel_statistics, rgb)
 
-    # 3. Model Inference across complementary neural classifiers
+    # Analyze the whole image for AI-generation patterns, and a face crop for face swaps.
     ai_gen_score = 0.0
-    diff_score = 0.0
+    legacy_ai_score = None
     deepfake_score = 0.0
+    face_detection_available = (
+        callable(getattr(cv2, "CascadeClassifier", None))
+        and hasattr(getattr(cv2, "data", None), "haarcascades")
+    )
+    face_crop = await run_in_threadpool(largest_face_crop, rgb)
 
+    whole_score = await run_in_threadpool(whole_image_ai_score, rgb)
     if ai_clf:
         ai_preds = await run_in_threadpool(ai_clf, rgb)
-        ai_gen_score = extract_fake_score(ai_preds)
+        legacy_ai_score = extract_fake_score(ai_preds)
+    if whole_score is not None:
+        ai_gen_score = whole_score
+    elif legacy_ai_score is not None:
+        ai_gen_score = legacy_ai_score
 
-    if diff_clf:
-        diff_preds = await run_in_threadpool(diff_clf, rgb)
-        diff_score = extract_fake_score(diff_preds)
-
-    if df_clf:
-        df_preds = await run_in_threadpool(df_clf, rgb)
+    if df_clf and face_crop is not None:
+        df_preds = await run_in_threadpool(df_clf, face_crop)
         deepfake_score = extract_fake_score(df_preds)
+    cnn_score = await run_in_threadpool(efficientnet_fake_score, face_crop) if face_crop is not None and cnn_entry else None
 
-    # 4. Multi-Signal Ensemble Synthesis
-    fname_penalty = filename_ai_penalty(file.filename or "")
-    res_penalty = resolution_ai_penalty(raw.width, raw.height)
-
-    # High-water mark across specialized vision classifiers
-    peak_model_fake = max(ai_gen_score, diff_score, deepfake_score)
-    forensic_boost = forensics["forensic_risk_score"]
-
-    # When camera hardware EXIF tags are missing (characteristic of ALL AI generated portraits):
-    # Combine peak vision model + EXIF signal + frequency lattice signature
-    if exif_penalty > 0 and (peak_model_fake > 40.0 or forensic_boost >= 15.0):
-        ensemble_fake = min(100.0, round(peak_model_fake * 0.70 + exif_penalty * 0.20 + forensic_boost * 0.10 + 10.0, 2))
-    elif fname_penalty > 0:
-        ensemble_fake = min(100.0, round(peak_model_fake * 0.60 + fname_penalty * 0.40, 2))
-    else:
-        ensemble_fake = round(peak_model_fake * 0.65 + (forensic_boost + exif_penalty + res_penalty) * 0.35, 2)
-
-    is_fake = ensemble_fake >= 50.0
-    conf_pct = ensemble_fake if is_fake else round(100.0 - ensemble_fake, 2)
+    face_model_scores = ([deepfake_score] if face_crop is not None and df_clf else []) + ([cnn_score] if cnn_score is not None else [])
+    face_model_names = (["ViT"] if face_crop is not None and df_clf else []) + (["EfficientNet-B0 CNN"] if cnn_score is not None else [])
+    face_model_ran = bool(face_crop is not None and face_model_scores)
+    face_ensemble = round(sum(face_model_scores) / len(face_model_scores), 2) if face_model_ran else None
+    available_signals = ([ai_gen_score] if whole_score is not None or legacy_ai_score is not None else []) + ([face_ensemble] if face_ensemble is not None else [])
+    signal_pct = round(max(available_signals), 2) if available_signals else 0.0
+    is_fake = bool((whole_score is not None and whole_score >= 65.0) or (face_ensemble is not None and face_ensemble >= 50.0)
+                   or (whole_score is None and legacy_ai_score is not None and legacy_ai_score >= 65.0))
+    analysis_ran = bool(available_signals)
+    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2)
 
     breakdown = {
-        "AI Generator / ViT Score (%)": ai_gen_score,
-        "Diffusion / Scene Score (%)": diff_score,
-        "Facial Deepfake Score (%)": deepfake_score,
-        "EXIF Null Penalty (%)": exif_penalty,
-        "2D FFT & ELA Frequency Anomaly (%)": forensic_boost,
-        "Synthesized Synthetic Risk (%)": ensemble_fake,
+        "Whole-Image AI Generation Signal (%)": ai_gen_score,
+        **({"Legacy Full-Image Classifier Signal (%)": legacy_ai_score} if legacy_ai_score is not None else {}),
+        **({"Face-Crop ViT Signal (%)": deepfake_score} if face_crop is not None and df_clf else {}),
+        **({"Face-Crop EfficientNet CNN Signal (%)": cnn_score} if cnn_score is not None else {}),
+        "Patch Residual Energy Mean": pixel_stats["patch_residual_mean"],
+        "Patch Residual Energy Variation": pixel_stats["patch_residual_std"],
     }
 
     metadata.update({
-        "AI_Generator_Output": f"{ai_gen_score}%",
-        "Diffusion_Model_Output": f"{diff_score}%",
-        "Deepfake_Face_Output": f"{deepfake_score}%",
+        "Whole_Image_AI_Detector": f"{whole_score}%" if whole_score is not None else "Unavailable",
+        "Whole_Image_AI_Threshold": "65% calibrated screening threshold" if whole_score is not None else "Unavailable",
+        "Legacy_Full_Image_Model_Output": f"{legacy_ai_score}%" if legacy_ai_score is not None else "Unavailable",
+        "AI_Generator_Output": f"{ai_gen_score}%" if available_signals else "Unavailable",
+        "Face_Crop_Deepfake_Output": f"{deepfake_score}%" if face_crop is not None and df_clf else "Unavailable",
+        "EfficientNet_CNN_Output": f"{cnn_score}%" if cnn_score is not None else "Unavailable",
+        "Face_Detection_Status": "Face crop analyzed" if face_crop is not None else "Unavailable in this OpenCV build" if not face_detection_available else "No face detected",
+        "Detection_Basis": "Whole-image AI-generation model plus face-region forgery models where present" if analysis_ran else "No image classifier available",
         "FFT_Spectral_Energy_Ratio": f"{forensics['hf_ratio']}",
         "ELA_Compression_Std": f"{forensics['ela_std']}",
         "Color_Covariance": f"{forensics['color_corr']}",
+        "Pixel_Patches_Analyzed": pixel_stats["patches_analyzed"],
+        **provenance_fingerprint(contents, "image", Image.MIME.get(raw.format, "application/octet-stream")),
     })
 
     record_telemetry("Image", is_fake, conf_pct, "Neutral", breakdown)
-    ann_b64, mask_b64 = generate_tampering_mask_and_bbox(rgb, is_fake)
+    if face_model_ran:
+        ann_b64, mask_b64 = generate_tampering_mask_and_bbox(rgb, is_fake)
+    else:
+        ann_b64, mask_b64 = "", ""
 
-    prediction_str = "Elevated synthetic signals" if is_fake else "No strong synthetic signals"
+    prediction_str = ("Elevated synthetic-content signals" if is_fake else "No strong synthetic-content signals") if analysis_ran else "Inconclusive — no image model was available"
+    model_evidence = []
+    if whole_score is not None:
+        model_evidence.append({"label": "Whole-image AI-generation detector", "detail": f"Community Forensics calibrated score {whole_score}%; published screening threshold 65%. It evaluates a whole-image crop, not just a face; this is not proof of origin."})
+    elif legacy_ai_score is not None:
+        model_evidence.append({"label": "Legacy whole-image detector", "detail": f"{legacy_ai_score}% screening score; fallback model with limited calibration. It does not determine authenticity."})
+    if legacy_ai_score is not None and whole_score is not None:
+        model_evidence.append({"label": "Legacy model comparison", "detail": f"Older full-image model score: {legacy_ai_score}%. Kept as a secondary comparison and excluded from the calibrated primary whole-image score."})
+    model_evidence.extend([
+        {"label": "Face-region forgery models", "detail": f"{'+'.join(face_model_names)} mean score {face_ensemble}% on the detected face crop." if face_model_ran else "No face was detected; face-specific models were skipped. Whole-image analysis still ran independently."},
+        {"label": "Pixel-level statistics", "detail": f"Compared local high-frequency residual energy across {pixel_stats['patches_analyzed']} patches. The heatmap highlights variation, not confirmed edits."},
+        {"label": "Metadata and provenance", "detail": f"EXIF, C2PA manifest validation, and SHA-256 fingerprint are reported as source clues; missing metadata does not mean synthetic."},
+    ])
+    assessment = {
+        "status": "MODEL SIGNAL" if is_fake else "NO STRONG SIGNALS" if analysis_ran else "INCONCLUSIVE",
+        "summary": "Whole-image AI-generation analysis runs independently of face detection; face-region forgery classifiers run additionally when a face is present. Scores are model screening signals, not proof of synthetic origin or authenticity. Pixel statistics, metadata, and provenance add context but are not verdicts." if analysis_ran else "No image classifier was available for this scan. Pixel statistics and metadata alone cannot establish whether the content is synthetic.",
+        "evidence": model_evidence,
+    }
 
     return {
         "modality": "Image",
         "prediction": prediction_str,
         "elevated_signals": is_fake,
         "confidence_pct": conf_pct,
-        "preview": f"Scanned: {file.filename} | Synthetic Risk: {ensemble_fake}% | Peak Model: {peak_model_fake}%",
+        "signal_pct": signal_pct,
+        "preview": f"Scanned whole image{', plus face crop' if face_model_ran else ' (no face required)'} | strongest model signal: {signal_pct}%",
         "metadata": metadata,
+        "assessment": assessment,
+        "gauge_title": "Estimated synthetic-content signal",
+        "gauge_label": "Whole-image and face-model signals; not proof",
         "annotated_image_b64": ann_b64,
         "tampering_mask_b64": mask_b64,
         "ela_heatmap_b64": forensics["ela_b64"],
         "fft_spectrum_b64": forensics["fft_b64"],
+        "pixel_statistics_heatmap_b64": pixel_stats["heatmap_b64"],
         "bar_chart_data": breakdown,
         "live_stats": live_analytics,
     }
@@ -820,40 +1129,107 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
 # ===========================================================================
 @app.post("/analyze-video")
 async def analyze_video_endpoint(file: UploadFile = File(...)):
-    clf = ml_models.get("deepfake_detector") or ml_models.get("ai_image_detector")
-    if not clf:
+    vit_clf = ml_models.get("deepfake_detector")
+    cnn_entry = ml_models.get("cnn_deepfake_detector")
+    ai_clf = ml_models.get("ai_image_detector")
+    whole_detector = ml_models.get("whole_image_detector")
+    video_model_names = (["ViT"] if vit_clf else []) + (["EfficientNet-B0 CNN"] if cnn_entry else [])
+    if not (vit_clf or cnn_entry or ai_clf or whole_detector):
         raise HTTPException(status_code=500, detail="Video deepfake vision model not loaded.")
 
+    contents = await file.read()
     suffix = os.path.splitext(file.filename or "")[1] or ".mp4"
     tmp_path = None
     cap = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
+            tmp.write(contents)
             tmp_path = tmp.name
 
         cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            raise HTTPException(status_code=400, detail="Could not open this video file.")
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration_sec = round(total_frames / fps, 2) if fps > 0 else 0
-
-        num_samples = min(12, max(1, total_frames))
-        step = max(1, total_frames // num_samples)
+        reported_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc = "".join(chr((fourcc_int >> (8 * i)) & 0xFF) for i in range(4)).strip("\x00 ") or "Unknown"
         timeline = []
-        fake_count = 0
+        face_scores = []
+        whole_image_scores = []
+        region_signals = {"left": [], "right": []}
+        all_patch_means = []
+        all_patch_stds = []
+        frame_index = 0
 
-        for i in range(num_samples):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, i * step)
+        # Sequential decode: run whole-image AI scoring and pixel statistics on
+        # every frame, plus face-specific models wherever a face is present.
+        while True:
             ok, frame = cap.read()
             if not ok:
-                continue
+                break
             pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            preds = await run_in_threadpool(clf, pil)
-            fake_prob = extract_fake_score(preds)
-            if fake_prob >= 50.0:
-                fake_count += 1
-            timestamp = round((i * step) / fps, 1)
-            timeline.append({"frame": i * step, "time_label": f"{timestamp}s", "fake_prob": fake_prob})
+            patch_mean, patch_std = await run_in_threadpool(compute_frame_pixel_statistics, frame)
+            all_patch_means.append(patch_mean)
+            all_patch_stds.append(patch_std)
+
+            whole_score = await run_in_threadpool(whole_image_ai_score, pil)
+            if whole_score is None and ai_clf:
+                ai_preds = await run_in_threadpool(ai_clf, pil)
+                whole_score = extract_fake_score(ai_preds)
+            if whole_score is not None:
+                whole_image_scores.append(whole_score)
+
+            box = await run_in_threadpool(detect_face_box, pil)
+            frame_scores = []
+            face_crop = None
+            if box is not None:
+                x, y, fw, fh = box
+                pad_x, pad_y = int(fw * .2), int(fh * .2)
+                face_crop = pil.crop((max(0, x-pad_x), max(0, y-pad_y), min(pil.width, x+fw+pad_x), min(pil.height, y+fh+pad_y)))
+                if vit_clf:
+                    vit_preds = await run_in_threadpool(vit_clf, face_crop)
+                    frame_scores.append(extract_fake_score(vit_preds))
+                if cnn_entry:
+                    cnn_value = await run_in_threadpool(efficientnet_fake_score, face_crop)
+                    if cnn_value is not None:
+                        frame_scores.append(cnn_value)
+
+                # Cheek ROI RGB means feed an exploratory rPPG consistency check.
+                for name, center_x in (("left", 0.32), ("right", 0.68)):
+                    xa = max(0, min(pil.width - 1, x + int(fw * (center_x - .10))))
+                    xb = max(xa + 1, min(pil.width, x + int(fw * (center_x + .10))))
+                    ya = max(0, min(pil.height - 1, y + int(fh * .52)))
+                    yb = max(ya + 1, min(pil.height, y + int(fh * .72)))
+                    roi = np.asarray(pil.crop((xa, ya, xb, yb)), dtype=np.float32)
+                    region_signals[name].append(roi.reshape(-1, 3).mean(axis=0).tolist())
+            else:
+                missing = [float("nan")] * 3
+                region_signals["left"].append(missing)
+                region_signals["right"].append(missing)
+
+            face_signal = round(sum(frame_scores) / len(frame_scores), 2) if frame_scores else None
+            if face_signal is not None:
+                face_scores.append(face_signal)
+                plotted_score = face_signal
+                basis = "face-model ensemble"
+            else:
+                plotted_score = whole_score
+                basis = "whole-image AI-generation model; no face model"
+
+            timestamp = round(frame_index / fps, 3) if fps > 0 else 0.0
+            timeline.append({
+                "frame": frame_index,
+                "time_label": f"{timestamp}s",
+                "fake_prob": plotted_score,
+                "face_signal_pct": face_signal,
+                "whole_image_ai_pct": whole_score,
+                "pixel_residual_mean": patch_mean,
+                "pixel_residual_variation": patch_std,
+                "basis": basis,
+            })
+            frame_index += 1
     finally:
         if cap is not None:
             cap.release()
@@ -866,32 +1242,73 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
     if not timeline:
         raise HTTPException(status_code=400, detail="Could not extract frames from video.")
 
-    fake_ratio = round(fake_count / len(timeline) * 100, 2)
-    avg_fake = round(sum(f["fake_prob"] for f in timeline) / len(timeline), 2)
-    peak_fake = max(f["fake_prob"] for f in timeline)
-    is_fake = fake_ratio > 50.0
-    conf_pct = avg_fake if is_fake else round(100 - avg_fake, 2)
+    total_frames = len(timeline)
+    duration_sec = round(total_frames / fps, 2) if fps > 0 else 0
+    fake_count = sum(score >= 50.0 for score in face_scores)
+    fake_ratio = round(fake_count / len(face_scores) * 100, 2) if face_scores else 0.0
+    avg_face_signal = round(float(np.mean(face_scores)), 2) if face_scores else None
+    peak_face_signal = round(float(max(face_scores)), 2) if face_scores else None
+    avg_whole_signal = round(float(np.mean(whole_image_scores)), 2) if whole_image_scores else None
+    whole_elevated_ratio = round(sum(score >= (65.0 if whole_detector else 50.0) for score in whole_image_scores) / len(whole_image_scores) * 100, 2) if whole_image_scores else 0.0
+    is_fake = bool((avg_whole_signal is not None and avg_whole_signal >= (65.0 if whole_detector else 65.0)) or (face_scores and fake_ratio > 50.0))
+    inconclusive = not face_scores and not whole_image_scores
+    component_signals = ([avg_whole_signal] if avg_whole_signal is not None else []) + ([avg_face_signal] if avg_face_signal is not None else [])
+    signal_pct = max(component_signals) if component_signals else 0.0
+    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2)
+    rppg = rppg_consistency(region_signals, fps)
+    rppg_detail = rppg["status"]
+    if rppg.get("left_cheek_bpm_estimate") is not None and rppg.get("right_cheek_bpm_estimate") is not None:
+        rppg_detail += (
+            f"; left/right cheek pulse-band estimates {rppg['left_cheek_bpm_estimate']}/{rppg['right_cheek_bpm_estimate']} BPM"
+            f"; cross-cheek agreement {rppg.get('cross_cheek_agreement')}"
+        )
 
     breakdown = {
-        "Fake Frame Ratio (%)": fake_ratio,
-        "Mean Frame Anomaly (%)": avg_fake,
-        "Peak Frame Anomaly (%)": peak_fake,
+        "Frames Analyzed (%)": 100.0,
+        "Mean Whole-Image AI Generation Signal (%)": avg_whole_signal or 0.0,
+        "Elevated Whole-Image Frames (%)": whole_elevated_ratio,
+        "Face Frames with Model Score": len(face_scores),
+        "Mean Face Deepfake Ensemble Signal (%)": avg_face_signal or 0.0,
+        "Peak Face Deepfake Ensemble Signal (%)": peak_face_signal or 0.0,
+        "Mean Local Pixel Residual": round(float(np.mean(all_patch_means)), 3),
+        "Pixel Residual Variation Across Frames": round(float(np.std(all_patch_means)), 3),
+        **({"Elevated Face-Model Frames (%)": fake_ratio} if face_scores else {}),
     }
     metadata = {
         "Filename": file.filename,
         "Duration": f"{duration_sec}s ({round(fps, 1)} FPS)",
-        "Frames_Sampled": f"{len(timeline)} of {total_frames}",
-        "Fake_Frames_Detected": f"{fake_count}/{len(timeline)} ({fake_ratio}%)",
+        "Frame_Scan": f"Scanned every decoded frame: {total_frames} / container reported {reported_frames}",
+        "Frame_Dimensions": f"{width}x{height}",
+        "Video_Codec_FourCC": fourcc,
+        "Face_Frames_Analyzed": f"{len(face_scores)} of {total_frames}",
+        "Whole_Image_Frames_Analyzed": f"{len(whole_image_scores)} of {total_frames}",
+        "Mean_Whole_Image_AI_Signal": f"{avg_whole_signal}%" if avg_whole_signal is not None else "Unavailable",
+        "Elevated_Face_Model_Frames": f"{fake_count}/{len(face_scores)} ({fake_ratio}%)" if face_scores else "No face-model scores; inconclusive",
+        "rPPG_Analysis": rppg_detail,
+        **provenance_fingerprint(contents, "video", "video/mp4" if suffix.lower() == ".mp4" else "video/webm" if suffix.lower() == ".webm" else "application/octet-stream"),
     }
     record_telemetry("Video", is_fake, conf_pct, "Neutral", breakdown, video_timeline=timeline)
 
     return {
         "modality": "Video",
-        "prediction": "Elevated synthetic signals" if is_fake else "No strong synthetic signals",
+        "prediction": "Inconclusive — no usable model signals" if inconclusive else "Elevated synthetic-content signals" if is_fake else "No strong synthetic-content signals",
         "elevated_signals": is_fake,
         "confidence_pct": conf_pct,
-        "preview": f"Temporal Scan: {fake_count}/{len(timeline)} frames flagged as synthetic.",
+        "signal_pct": signal_pct,
+        "preview": f"Scanned every decoded frame: whole-image model on {len(whole_image_scores)}/{total_frames}; face models on {len(face_scores)}/{total_frames}.",
         "metadata": metadata,
+        "assessment": {
+            "status": "INCONCLUSIVE" if inconclusive else "MODEL SIGNAL" if is_fake else "NO STRONG SIGNALS",
+            "summary": "Every decoded frame receives whole-image AI-generation analysis and pixel statistics; face-forgery models and exploratory rPPG run where conditions permit. These are screening signals, not proof of origin or authenticity." if not inconclusive else "Every decoded frame was scanned, but no usable image or face model signal was available.",
+            "evidence": [
+                {"label": "Frame coverage", "detail": f"{total_frames} of {total_frames} decoded frames analyzed."},
+                {"label": "Whole-image AI generation", "detail": f"Scored {len(whole_image_scores)} frames; mean {avg_whole_signal}%, {whole_elevated_ratio}% above the screening threshold. Whole-image model score is a research estimate, not proof." if whole_image_scores else "Whole-image detector unavailable."},
+                {"label": "Face-region forgery ensemble", "detail": f"{' + '.join(video_model_names)} signals on {len(face_scores)} frames; mean {avg_face_signal}% and elevated on {fake_count} frames. Scores are not calibrated probabilities." if face_scores else "No face crops found; whole-image analysis still ran on each decoded frame."},
+                {"label": "rPPG", "detail": f"{rppg_detail}. This physiological signal is affected by lighting, motion, compression, skin visibility, and may be present in deepfakes."},
+                {"label": "Pixel-level statistics", "detail": "High-frequency patch residual statistics were computed for every decoded frame; these locate variation, not confirmed edits."},
+            ],
+        },
+        "rppg": rppg,
         "bar_chart_data": breakdown,
         "video_timeline": timeline,
         "live_stats": live_analytics,

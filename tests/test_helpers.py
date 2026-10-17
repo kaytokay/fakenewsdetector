@@ -46,8 +46,8 @@ class TestForensicHelpers(unittest.TestCase):
         # Programmatically generated image has no camera EXIF
         img = Image.new("RGB", (200, 200), color=(120, 150, 180))
         meta, penalty = extract_exif_metadata(img)
-        self.assertEqual(penalty, 30.0)
-        self.assertIn("Null / Stripped", meta.get("EXIF_Status", ""))
+        self.assertEqual(penalty, 0.0)
+        self.assertIn("Missing or stripped", meta.get("EXIF_Status", ""))
         self.assertEqual(meta.get("Resolution"), "200x200")
 
     def test_extract_exif_metadata_present(self):
