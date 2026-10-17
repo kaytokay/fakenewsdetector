@@ -1,6 +1,6 @@
 # TruthShield
 
-**A college project for screening news claims, screenshots, images, and videos for misinformation and synthetic-media signals.**
+**A multimodal tool for screening news claims, screenshots, images, and videos for misinformation and synthetic-media signals.**
 
 TruthShield is a local FastAPI app with a browser dashboard. It combines machine-learning outputs with basic image forensics, metadata, OCR, and optional publisher-reference searches. Results are screening clues for review, not proof that content is true, false, authentic, or AI-generated.
 
