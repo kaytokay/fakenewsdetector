@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guardian-FDT | Media & Claim Screening</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .tab-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+    .tab-btn.active-tab {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
+      border-color: #6366f1;
+      color: #a5b4fc;
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.2);
+    }
+    .glow-card {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    }
+    :root { color-scheme: light; --ink:#17211d; --muted:#68756f; --line:#e2e9e3; --paper:#f4f6f2; --panel:#fff; --accent:#176b54; }
+    body { background:var(--paper)!important; color:var(--ink)!important; padding:24px!important; }
+    body > div { max-width:1280px!important; }
+    .glow-card { background:var(--panel)!important; color:var(--ink)!important; border:1px solid var(--line)!important; box-shadow:0 8px 28px rgba(25,45,34,.055)!important; backdrop-filter:none!important; }
+    header.glow-card { background:#173c32!important; color:#f7fbf8!important; border:0!important; box-shadow:0 16px 40px rgba(23,60,50,.16)!important; }
+    header .text-slate-400, header .text-slate-300 { color:#c4d8ce!important; }
+    .bg-slate-950\/60,.bg-slate-950\/50,.bg-slate-900\/90,.bg-slate-900\/50,.bg-slate-950 { background:#f7f9f6!important; }
+    .text-slate-100,.text-slate-200,.text-slate-300 { color:#26332d!important; }
+    .text-slate-400 { color:#68756f!important; }
+    .text-slate-500 { color:#7d8983!important; }
+    .border-slate-800,.border-slate-800\/80,.border-slate-800\/90,.border-slate-700\/80 { border-color:var(--line)!important; }
+    input:not([type=file]),textarea { background:#fff!important; color:var(--ink)!important; border-color:#d6dfd8!important; }
+    .tab-btn { min-height:48px; }
+    .tab-btn.active-tab { background:#e4f1e9!important; border-color:#a9cdb6!important; color:#155b42!important; box-shadow:none!important; }
+    button { cursor:pointer; }
+    button:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid #8ec5a3; outline-offset:2px; }
+    #resultNotice { border:1px solid #cbdccf; background:#edf5ee; color:#365d47; }
+    #errorNotice { border:1px solid #efc8bf; background:#fff2ef; color:#8a3425; }
+    @media (max-width:640px) { body { padding:12px!important; } }
+  </style>
+</head>
+<body class="bg-[#090d16] text-slate-100 min-h-screen p-4 md:p-8 font-sans antialiased">
+<div class="max-w-7xl mx-auto space-y-6">
+
+  <!-- ── Top Header Bar ── -->
+  <header class="glow-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-950/80">
+    <div>
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <span class="text-xl">🛡️</span>
+        </div>
+        <div>
+          <h1 class="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 bg-clip-text text-transparent">
+            Guardian-FDT Forensic Suite
+          </h1>
+          <p class="text-xs text-slate-400 font-medium mt-0.5">
+            A screening workspace for claims, screenshots, images, and video
+          </p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2.5 bg-slate-900/90 px-4 py-2 rounded-xl border border-slate-800 shadow-inner">
+        <span class="relative flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+        </span>
+        <span class="text-xs text-slate-300 font-medium">
+          Session scans:
+          <strong id="totalCount" class="text-emerald-400 font-bold ml-1 text-sm mono">0</strong>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── 5-Tab Input Control Bar ── -->
+  <div class="glow-card rounded-2xl overflow-hidden border border-slate-800">
+    <div role="tablist" aria-label="Choose a scan type" class="grid grid-cols-2 md:grid-cols-5 border-b border-slate-800/80 bg-slate-950/60 p-2 gap-2 text-xs md:text-sm font-semibold">
+      <button onclick="switchTab('text')" id="tab-text" class="tab-btn active-tab py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-transparent">
+        <span>📰</span> 1. News Text
+      </button>
+      <button onclick="switchTab('screenshot')" id="tab-screenshot" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        <span>📱</span> 2. Screenshot (OCR)
+      </button>
+      <button onclick="switchTab('image')" id="tab-image" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        <span>🖼️</span> 3. Image Deepfake
+      </button>
+      <button onclick="switchTab('video')" id="tab-video" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        <span>🎬</span> 4. Video Deepfake
+      </button>
+      <button onclick="switchTab('url')" id="tab-url" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        <span>🌐</span> 5. Web URL
+      </button>
+    </div>
+
+    <div class="p-6 md:p-8">
+      <p class="text-sm text-slate-500 mb-5">Choose what you want to inspect. Results are screening signals, not proof of authenticity.</p>
+      <!-- Panel 1: News Text -->
+      <div id="panel-text" class="space-y-4">
+        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Article Headline or Statement</label>
+        <textarea id="inputText" rows="4"
+          class="w-full p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 resize-none transition"
+          placeholder="Paste a claim, headline, or article excerpt (at least 10 characters)…"></textarea>
+        <div class="flex justify-between text-xs text-slate-500"><span>Long text is trimmed to the model’s input limit.</span><span><span id="textCount">0</span> characters</span></div>
+        <button onclick="submitText()"
+          class="px-7 py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-indigo-600/30">
+          Run Text Forensic Analysis
+        </button>
+      </div>
+
+      <!-- Panel 2: Screenshot -->
+      <div id="panel-screenshot" class="hidden space-y-4">
+        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Screenshot or Social Forward</label>
+        <p class="text-xs text-slate-400">Text extraction and image classifiers provide screening signals. The image preview is illustrative and does not pinpoint confirmed tampering.</p>
+        <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
+          <input type="file" id="inputScreenshot" accept="image/*"
+            class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-500 cursor-pointer" />
+        </div>
+        <button onclick="submitFile('/analyze-screenshot','inputScreenshot')"
+          class="px-7 py-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-amber-600/30">
+          Scan Screenshot & Splicing
+        </button>
+      </div>
+
+      <!-- Panel 3: Image -->
+      <div id="panel-image" class="hidden space-y-4">
+        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Image or Portrait File</label>
+        <p class="text-xs text-slate-400">Evaluates general AI synthesis (Gemini, Diffusion, DALL-E, Midjourney), facial deepfakes, EXIF metadata, and dimension anomalies.</p>
+        <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
+          <input type="file" id="inputImage" accept="image/*"
+            class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-600 file:text-white hover:file:bg-rose-500 cursor-pointer" />
+        </div>
+        <button onclick="submitFile('/analyze-image','inputImage')"
+          class="px-7 py-3 bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-rose-600/30">
+          Analyze Image & Deepfake
+        </button>
+      </div>
+
+      <!-- Panel 4: Video -->
+      <div id="panel-video" class="hidden space-y-4">
+        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Video File (.mp4 / .webm)</label>
+        <p class="text-xs text-slate-400">OpenCV extracts temporal frame slices across video timeline to plot temporal anomaly coordinates (FDT &gt;50% threshold).</p>
+        <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
+          <input type="file" id="inputVideo" accept="video/*"
+            class="block w-full text-sm text-slate-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer" />
+        </div>
+        <button onclick="submitFile('/analyze-video','inputVideo')"
+          class="px-7 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-purple-600/30">
+          Analyze Video Timeline
+        </button>
+      </div>
+
+      <!-- Panel 5: URL -->
+      <div id="panel-url" class="hidden space-y-4">
+        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Web Article or Media Link</label>
+        <input type="url" id="inputUrl"
+          class="w-full p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-200"
+          placeholder="https://example.com/news-story or direct https://.../sample.jpg" />
+        <button onclick="submitUrl()"
+          class="px-7 py-3 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-emerald-600/30">
+          Scrape & Auto-Detect URL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="errorNotice" class="hidden p-4 rounded-xl text-sm" role="alert"></div>
+  <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed">A model score is an estimate. Related coverage means similar reporting was found; it does not confirm that a claim is true.</div>
+
+  <!-- ── Loading Indicator ── -->
+  <div id="loadingBar" class="hidden glow-card p-5 rounded-2xl flex items-center gap-4 border border-indigo-500/30">
+    <div class="relative flex items-center justify-center">
+      <div class="w-8 h-8 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
+    </div>
+    <div>
+      <h4 class="text-sm font-bold text-slate-200">Analyzing your submission</h4>
+      <p class="text-xs text-slate-400">This can take a moment, especially for video and screenshots…</p>
+    </div>
+  </div>
+
+  <!-- ── Primary Forensic Result Banner & Gauge ── -->
+  <div id="verdictCard" class="hidden glow-card p-6 rounded-2xl space-y-6 border border-slate-700/70">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+      
+      <!-- Left: Verdict Info -->
+      <div class="lg:col-span-8 space-y-3">
+        <div class="flex items-center gap-3">
+          <span id="modalityBadge" class="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-950/80 text-indigo-300 border border-indigo-800 uppercase tracking-wider">
+            MODALITY
+          </span>
+          <span id="verdictPill" class="px-3 py-1 text-xs font-bold rounded-lg uppercase tracking-wider">
+            STATUS
+          </span>
+        </div>
+        <h2 id="verdictHeading" class="text-3xl font-extrabold tracking-tight">--</h2>
+        <p id="verdictPreview" class="text-xs text-slate-300 leading-relaxed max-w-2xl bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 mono">--</p>
+      </div>
+
+      <!-- Right: Circular Risk Gauge -->
+      <div class="lg:col-span-4 flex flex-col items-center justify-center bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Estimated synthetic signal</span>
+        <div class="relative w-44 h-28 flex items-center justify-center">
+          <canvas id="gaugeChart"></canvas>
+          <div class="absolute bottom-1 text-center">
+            <span id="gaugeValue" class="text-2xl font-black mono text-white">0%</span>
+          </div>
+        </div>
+        <span id="gaugeLabel" class="text-[11px] font-semibold text-slate-400 mt-1">Model-estimated signal, not proof</span>
+      </div>
+
+    </div>
+
+    <!-- Live Web Fact-Checking Grounding Box -->
+    <div id="webVerificationBox" class="hidden bg-emerald-950/40 p-4 rounded-xl border border-emerald-800/60 space-y-2.5">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+          <span>🌐</span> Related coverage found
+        </span>
+        <span id="webMatchBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700 font-bold mono">
+          Search context
+        </span>
+      </div>
+      <div id="webSourcesList" class="space-y-1.5 text-xs"></div>
+    </div>
+
+    <!-- Metadata Tags Grid -->
+    <div class="border-t border-slate-800/80 pt-4">
+      <span class="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">Forensic Metadata & Signatures</span>
+      <div id="metadataGrid" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs"></div>
+    </div>
+  </div>
+
+  <!-- ── Visual Proof: Color-Coded Bounding Box, Tampering Mask, ELA & 2D FFT ── -->
+  <div id="visualPreviewBox" class="hidden glow-card p-6 rounded-2xl space-y-4 border border-slate-800">
+    <div class="flex items-center justify-between">
+      <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+        <span>🔬</span> Image analysis previews
+      </h3>
+      <span class="text-[11px] mono text-indigo-400">Error Level + 2D FFT Lattice Analysis</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+        <span class="text-[11px] font-semibold text-slate-400 block truncate">1. Face detection preview</span>
+        <img id="bboxImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="Face ROI" />
+      </div>
+      <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+        <span class="text-[11px] font-semibold text-slate-400 block truncate">2. Heuristic mask preview</span>
+        <img id="maskImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="Tampering Mask" />
+      </div>
+      <div id="elaCard" class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+        <span class="text-[11px] font-semibold text-amber-400 block truncate">3. Error Level Analysis (ELA Heatmap)</span>
+        <img id="elaImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="ELA Heatmap" />
+      </div>
+      <div id="fftCard" class="bg-slate-950 p-3.5 rounded-xl border border-slate-800/90 text-center space-y-1.5">
+        <span class="text-[11px] font-semibold text-purple-400 block truncate">4. 2D FFT Power Spectrum</span>
+        <img id="fftImg" class="w-full h-52 object-contain rounded-lg border border-slate-800 mx-auto shadow bg-black" alt="2D FFT Spectrum" />
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Forensic Visualizations Grid ── -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    
+    <!-- Chart 1: Horizontal Forensic Feature Breakdown -->
+    <div class="lg:col-span-7 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+          <span>📊</span> Multi-Signal Forensic Breakdown
+        </h3>
+        <span class="text-[11px] text-slate-400 font-mono">TransStacking Fusion</span>
+      </div>
+      <div class="h-64 relative">
+        <canvas id="barChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 2: Video Temporal Anomaly Timeline -->
+    <div class="lg:col-span-5 glow-card p-6 rounded-2xl space-y-3 border border-slate-800">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+          <span>🎬</span> Temporal Video Timeline
+        </h3>
+        <span class="text-[11px] text-slate-400 font-mono">Guardian-AI Slices</span>
+      </div>
+      <div class="h-64 relative">
+        <canvas id="videoTimelineChart"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Academic Metrics Table & Confusion Matrix ── -->
+  <div id="academicMetrics" class="hidden">
+
+    <!-- Academic Table -->
+    <div class="lg:col-span-7 glow-card p-6 rounded-2xl space-y-4 border border-slate-800">
+      <h3 class="text-sm font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-2">
+        <span>🎓</span> Single-scan score summary
+      </h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs mono text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400">
+              <th class="py-2.5 px-3">Evaluation Metric</th>
+              <th class="py-2.5 px-3">Calculated Value</th>
+              <th class="py-2.5 px-3">Benchmark Standard</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60">
+            <tr>
+              <td class="py-2 px-3 text-slate-300">Accuracy</td>
+              <td id="mAcc" class="py-2 px-3 text-emerald-400 font-bold">--</td>
+              <td class="py-2 px-3 text-slate-500">97.89% (EuroSAT/CDDB)</td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-slate-300">Precision</td>
+              <td id="mPrecision" class="py-2 px-3 text-slate-200 font-bold">--</td>
+              <td class="py-2 px-3 text-slate-500">96.20% (Guardian-AI)</td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-slate-300">Recall</td>
+              <td id="mRecall" class="py-2 px-3 text-slate-200 font-bold">--</td>
+              <td class="py-2 px-3 text-slate-500">95.60% (Guardian-AI)</td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-slate-300">F1-Score</td>
+              <td id="mF1" class="py-2 px-3 text-indigo-400 font-bold">--</td>
+              <td class="py-2 px-3 text-slate-500">95.90% (CDDB Benchmark)</td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-slate-300">Matthews Correlation (MCC)</td>
+              <td id="mMCC" class="py-2 px-3 text-sky-400 font-bold">--</td>
+              <td class="py-2 px-3 text-slate-500">0.9200 (TransStacking Level 1)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Confusion Matrix -->
+    <div class="lg:col-span-5 glow-card p-6 rounded-2xl space-y-4 border border-slate-800">
+      <h3 class="text-sm font-bold text-rose-300 uppercase tracking-wider flex items-center gap-2">
+        <span>🔲</span> 2×2 Forensic Confusion Matrix
+      </h3>
+      <div class="grid grid-cols-2 gap-3 text-center mono text-xs pt-2">
+        <div class="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60">
+          <span class="text-[11px] text-emerald-400 block font-semibold">True Positive (TP)</span>
+          <span id="cmTP" class="text-2xl font-black text-emerald-300 mt-1 block">0</span>
+        </div>
+        <div class="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60">
+          <span class="text-[11px] text-rose-400 block font-semibold">False Positive (FP)</span>
+          <span id="cmFP" class="text-2xl font-black text-rose-300 mt-1 block">0</span>
+        </div>
+        <div class="p-4 rounded-xl bg-amber-950/40 border border-amber-800/60">
+          <span class="text-[11px] text-amber-400 block font-semibold">False Negative (FN)</span>
+          <span id="cmFN" class="text-2xl font-black text-amber-300 mt-1 block">0</span>
+        </div>
+        <div class="p-4 rounded-xl bg-sky-950/40 border border-sky-800/60">
+          <span class="text-[11px] text-sky-400 block font-semibold">True Negative (TN)</span>
+          <span id="cmTN" class="text-2xl font-black text-sky-300 mt-1 block">0</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Session overview (counts, not benchmark accuracy) ── -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="glow-card p-5 rounded-2xl space-y-3 border border-slate-800">
+      <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+        <span>🍩</span> Session signal distribution
+      </h4>
+      <div class="h-44 relative flex items-center justify-center">
+        <canvas id="verdictChart"></canvas>
+      </div>
+    </div>
+
+    <div class="glow-card p-5 rounded-2xl space-y-3 border border-slate-800">
+      <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+        <span>🥧</span> Content Sentiment Polarity
+      </h4>
+      <div class="h-44 relative flex items-center justify-center">
+        <canvas id="sentimentChart"></canvas>
+      </div>
+    </div>
+
+    <div class="glow-card p-5 rounded-2xl space-y-3 border border-slate-800">
+      <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+        <span>📡</span> Scanned Media Modalities
+      </h4>
+      <div class="h-44 relative flex items-center justify-center">
+        <canvas id="modalityChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = (window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : "http://127.0.0.1:8000";
+const TABS = ["text","screenshot","image","video","url"];
+
+function switchTab(active) {
+  TABS.forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle("hidden", t !== active);
+    const btn = document.getElementById(`tab-${t}`);
+    btn.setAttribute("aria-selected", String(t === active));
+    if (t === active) {
+      btn.className = "tab-btn active-tab py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-transparent";
+    } else {
+      btn.className = "tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent";
+    }
+  });
+}
+
+// ── Chart.js Setup with Sleek Dark Styling ────────────────────────────────
+Chart.defaults.color = '#68756f';
+Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+
+// 1. Semi-Circular Risk Gauge
+const gaugeChart = new Chart(document.getElementById("gaugeChart"), {
+  type: "doughnut",
+  data: {
+    datasets: [{
+      data: [0, 100],
+      backgroundColor: ["#10b981", "#1e293b"],
+      borderWidth: 0,
+      circumference: 180,
+      rotation: 270,
+      cutout: "80%"
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { tooltip: { enabled: false } }
+  }
+});
+
+// 2. Horizontal Breakdown Bar Chart
+const barChart = new Chart(document.getElementById("barChart"), {
+  type: "bar",
+  data: {
+    labels: ["Awaiting scan…"],
+    datasets: [{
+      label: "Component Score (%)",
+      data: [0],
+      backgroundColor: ["#6366f1", "#0ea5e9", "#f59e0b", "#f43f5e", "#10b981"],
+      borderRadius: 6,
+      borderSkipped: false
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => ` Score: ${ctx.raw}%`
+        }
+      }
+    },
+    scales: {
+      x: { beginAtZero: true, max: 100, grid: { color: '#e1e8e2' } },
+      y: { grid: { display: false } }
+    }
+  }
+});
+
+// 3. Video Timeline Line Chart
+const videoTimelineChart = new Chart(document.getElementById("videoTimelineChart"), {
+  type: "line",
+  data: {
+    labels: ["0.0s"],
+    datasets: [{
+      label: "Frame Fake Probability (%)",
+      data: [0],
+      borderColor: "#a855f7",
+      backgroundColor: "rgba(168, 85, 247, 0.15)",
+      borderWidth: 2.5,
+      fill: true,
+      tension: 0.35,
+      pointRadius: 4,
+      pointBackgroundColor: "#a855f7"
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false }
+    },
+    scales: {
+      x: { grid: { color: '#e1e8e2' } },
+      y: { beginAtZero: true, max: 100, grid: { color: '#e1e8e2' } }
+    }
+  }
+});
+
+// 4. Session signal distribution
+const verdictChart = new Chart(document.getElementById("verdictChart"), {
+  type: "doughnut",
+  data: {
+    labels: ["Lower signal", "Elevated signal"],
+    datasets: [{
+      data: [0, 0],
+      backgroundColor: ["#10b981", "#f43f5e"],
+      borderWidth: 0,
+      cutout: "70%"
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }
+  }
+});
+
+// 5. Sentiment Pie
+const sentimentChart = new Chart(document.getElementById("sentimentChart"), {
+  type: "pie",
+  data: {
+    labels: ["Positive", "Neutral", "Negative"],
+    datasets: [{
+      data: [0, 0, 0],
+      backgroundColor: ["#10b981", "#f59e0b", "#f43f5e"],
+      borderWidth: 0
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }
+  }
+});
+
+// 6. Modality Polar Area
+const modalityChart = new Chart(document.getElementById("modalityChart"), {
+  type: "polarArea",
+  data: {
+    labels: ["Text", "Screenshot", "Image", "Video", "URL"],
+    datasets: [{
+      data: [0, 0, 0, 0, 0],
+      backgroundColor: ["#6366f1", "#f59e0b", "#f43f5e", "#a855f7", "#0ea5e9"],
+      borderWidth: 0
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } }
+  }
+});
+
+// ── SSE Live Telemetry Stream ─────────────────────────────────────────────
+const evtSrc = new EventSource(`${API}/stream-stats`);
+evtSrc.onmessage = e => refreshGlobalCharts(JSON.parse(e.data));
+evtSrc.onerror = () => {
+  document.getElementById("totalCount").textContent = "API offline";
+};
+
+function refreshGlobalCharts(s) {
+  if (!s) return;
+  document.getElementById("totalCount").textContent = s.total_analyzed;
+
+  verdictChart.data.datasets[0].data = [s.verdict_counts["Lower signal"], s.verdict_counts["Elevated signal"]];
+  verdictChart.update();
+
+  sentimentChart.data.datasets[0].data = [
+    s.sentiment_counts.Positive, s.sentiment_counts.Neutral, s.sentiment_counts.Negative
+  ];
+  sentimentChart.update();
+
+  modalityChart.data.datasets[0].data = [
+    s.modality_counts.Text, s.modality_counts.Screenshot,
+    s.modality_counts.Image, s.modality_counts.Video, s.modality_counts.URL
+  ];
+  modalityChart.update();
+
+  if (s.latest_bar_breakdown && Object.keys(s.latest_bar_breakdown).length) {
+    updateBarChart(s.latest_bar_breakdown);
+  }
+
+  if (s.latest_video_timeline && s.latest_video_timeline.length) {
+    videoTimelineChart.data.labels = s.latest_video_timeline.map(f => f.time_label);
+    videoTimelineChart.data.datasets[0].data = s.latest_video_timeline.map(f => f.fake_prob);
+    videoTimelineChart.update();
+  }
+}
+
+function updateBarChart(breakdown) {
+  const labels = Object.keys(breakdown);
+  const data = Object.values(breakdown);
+  const colors = labels.map(l => {
+    const low = l.toLowerCase();
+    if (low.includes("authentic") || low.includes("real")) return "#10b981"; // green
+    if (low.includes("exif") || low.includes("dimension") || low.includes("penalty")) return "#f59e0b"; // amber
+    if (low.includes("ai") || low.includes("generator") || low.includes("synthetic")) return "#f43f5e"; // red/rose
+    return "#6366f1"; // indigo
+  });
+
+  barChart.data.labels = labels;
+  barChart.data.datasets[0].data = data;
+  barChart.data.datasets[0].backgroundColor = colors;
+  barChart.update();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+}
+function safeHttpUrl(value) {
+  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) ? url.href : "#"; }
+  catch { return "#"; }
+}
+
+// ── Render Response Data ──────────────────────────────────────────────────
+function renderResult(data) {
+  document.getElementById("loadingBar").classList.add("hidden");
+  document.getElementById("verdictCard").classList.remove("hidden");
+
+  const isFake = Boolean(data.elevated_signals);
+  document.getElementById("modalityBadge").textContent = data.modality;
+
+  const pill = document.getElementById("verdictPill");
+  pill.textContent = isFake ? "ELEVATED SIGNALS" : "NO STRONG SIGNALS";
+  pill.className = `px-3 py-1 text-xs font-bold rounded-lg uppercase tracking-wider ${
+    isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
+  }`;
+
+  const h = document.getElementById("verdictHeading");
+  h.textContent = `${data.prediction} (${data.confidence_pct}%)`;
+  h.className = `text-3xl font-extrabold tracking-tight ${isFake ? "text-rose-400" : "text-emerald-400"}`;
+
+  document.getElementById("verdictPreview").textContent = data.preview || "";
+
+  // Update Semi-Circular Gauge
+  const fakeScore = isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
+  gaugeChart.data.datasets[0].data = [fakeScore, 100 - fakeScore];
+  gaugeChart.data.datasets[0].backgroundColor = [
+    fakeScore >= 50 ? "#f43f5e" : "#10b981",
+    "#1e293b"
+  ];
+  gaugeChart.update();
+  document.getElementById("gaugeValue").textContent = `${fakeScore}%`;
+  document.getElementById("gaugeValue").className = `text-2xl font-black mono ${fakeScore >= 50 ? "text-rose-400" : "text-emerald-400"}`;
+
+  // Populate Real-Time Web Fact-Check Box
+  const webBox = document.getElementById("webVerificationBox");
+  if (data.web_verification && data.web_verification.corroborated) {
+    webBox.classList.remove("hidden");
+    document.getElementById("webMatchBadge").textContent = `${data.web_verification.match_count} related result(s)`;
+    const list = document.getElementById("webSourcesList");
+    list.innerHTML = data.web_verification.sources.map(s => `
+      <div class="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+        <div class="min-w-0">
+          <a href="${escapeHtml(safeHttpUrl(s.link))}" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-300 hover:text-sky-200 hover:underline font-bold block truncate">
+            ${escapeHtml(s.title)}
+          </a>
+          <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(s.source)} &bull; ${escapeHtml(s.pubDate)}</span>
+        </div>
+        <a href="${escapeHtml(safeHttpUrl(s.link))}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-200 px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700 font-semibold whitespace-nowrap">
+          Read Outlet &rarr;
+        </a>
+      </div>
+    `).join("");
+  } else {
+    webBox.classList.add("hidden");
+  }
+
+  // Update Metadata Pills Grid
+  if (data.metadata) {
+    const grid = document.getElementById("metadataGrid");
+    grid.innerHTML = Object.entries(data.metadata).map(([k, v]) => `
+      <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 flex flex-col">
+        <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">${escapeHtml(k.replace(/_/g, " "))}</span>
+        <span class="text-xs text-sky-300 font-mono font-medium truncate mt-0.5" title="${escapeHtml(v)}">${escapeHtml(v)}</span>
+      </div>
+    `).join("");
+  }
+
+  // Update Visual Inspection (Bounding Box, Tampering Mask, ELA Heatmap, 2D FFT Spectrum)
+  const hasVisual = data.annotated_image_b64 || data.ela_heatmap_b64 || data.fft_spectrum_b64;
+  if (hasVisual) {
+    document.getElementById("visualPreviewBox").classList.remove("hidden");
+    if (data.annotated_image_b64) {
+      document.getElementById("bboxImg").src = data.annotated_image_b64;
+    }
+    if (data.tampering_mask_b64) {
+      document.getElementById("maskImg").src = data.tampering_mask_b64;
+    }
+    const elaCard = document.getElementById("elaCard");
+    if (data.ela_heatmap_b64) {
+      elaCard.classList.remove("hidden");
+      document.getElementById("elaImg").src = data.ela_heatmap_b64;
+    } else {
+      elaCard.classList.add("hidden");
+    }
+    const fftCard = document.getElementById("fftCard");
+    if (data.fft_spectrum_b64) {
+      fftCard.classList.remove("hidden");
+      document.getElementById("fftImg").src = data.fft_spectrum_b64;
+    } else {
+      fftCard.classList.add("hidden");
+    }
+  } else {
+    document.getElementById("visualPreviewBox").classList.add("hidden");
+  }
+
+  // Update Bar Chart
+  if (data.bar_chart_data) {
+    updateBarChart(data.bar_chart_data);
+  }
+
+  refreshGlobalCharts(data.live_stats);
+}
+
+// ── API Submission Handlers ───────────────────────────────────────────────
+async function callApi(url, options) {
+  const errorBox = document.getElementById("errorNotice");
+  errorBox.classList.add("hidden");
+  document.getElementById("loadingBar").classList.remove("hidden");
+  document.getElementById("verdictCard").classList.add("hidden");
+  document.querySelectorAll("button").forEach(button => button.disabled = true);
+  try {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Request failed");
+    }
+    const data = await res.json();
+    renderResult(data);
+    document.getElementById("resultNotice").textContent = !data.web_verification
+      ? "This model score is an estimate and should be reviewed alongside the original media and its source."
+      : data.web_verification.corroborated
+        ? `Related coverage found in ${data.web_verification.match_count} result(s). This is context only and does not validate the claim.`
+        : "No related coverage was found in this search. That does not mean the claim is false or true.";
+  } catch (e) {
+    document.getElementById("loadingBar").classList.add("hidden");
+    errorBox.textContent = `Analysis could not be completed: ${e.message}`;
+    errorBox.classList.remove("hidden");
+  } finally {
+    document.querySelectorAll("button").forEach(button => button.disabled = false);
+  }
+}
+
+async function submitText() {
+  const text = document.getElementById("inputText").value;
+  if (text.trim().length < 10) {
+    const box = document.getElementById("errorNotice"); box.textContent = "Enter at least 10 characters to analyze."; box.classList.remove("hidden"); return;
+  }
+  await callApi(`${API}/analyze-text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+}
+
+async function submitFile(endpoint, inputId) {
+  const el = document.getElementById(inputId);
+  if (!el.files.length) {
+    const box = document.getElementById("errorNotice"); box.textContent = "Choose a file before starting the scan."; box.classList.remove("hidden"); return;
+  }
+  const form = new FormData();
+  form.append("file", el.files[0]);
+  await callApi(`${API}${endpoint}`, { method: "POST", body: form });
+}
+
+async function submitUrl() {
+  const url = document.getElementById("inputUrl").value.trim();
+  if (!url) {
+    const box = document.getElementById("errorNotice"); box.textContent = "Enter a web address before starting the scan."; box.classList.remove("hidden"); return;
+  }
+  await callApi(`${API}/analyze-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url })
+  });
+}
+document.getElementById("inputText").addEventListener("input", e => {
+  document.getElementById("textCount").textContent = e.target.value.length.toLocaleString();
+});
+</script>
+</body>
+</html>
