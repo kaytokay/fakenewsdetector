@@ -15,7 +15,7 @@ TruthShield is a local FastAPI app with a browser dashboard. It combines machine
 
 ## Requirements
 
-- Python 3.11 recommended (also used by the Docker image).
+- Python 3.12 recommended (also used by the Docker image and CI).
 - Internet access on first startup to download model weights and browser assets.
 - Several gigabytes of free disk space and sufficient RAM for the selected PyTorch, OCR, and vision models. Startup may take a while; models that fail to load are logged and their features will be unavailable.
 - Docker, if using the container setup.
@@ -27,7 +27,7 @@ The app runs on CPU by default. Video analysis and model startup can be slow on 
 Open PowerShell in the project directory:
 
 ```powershell
-py -3.11 -m venv env
+py -3.12 -m venv env
 .\env\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements-lock.txt

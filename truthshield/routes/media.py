@@ -44,7 +44,7 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     pixel_stats = await run_in_threadpool(compute_pixel_statistics, rgb)
 
     # Analyze the whole image for AI-generation patterns, and a face crop for face swaps.
-    ai_gen_score = 0.0
+    ai_gen_score = None
     legacy_ai_score = None
     deepfake_score = 0.0
     face_detection_available = (
@@ -74,13 +74,13 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     # Keep the whole-image AI-generation result separate from face-forgery
     # classifiers. Their scores measure different tasks and are not comparable.
     primary_ai_score = whole_score if whole_score is not None else legacy_ai_score
-    signal_pct = round(primary_ai_score, 2) if primary_ai_score is not None else 0.0
+    signal_pct = round(primary_ai_score, 2) if primary_ai_score is not None else None
     is_fake = bool(primary_ai_score is not None and primary_ai_score >= 65.0)
     analysis_ran = primary_ai_score is not None
-    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2) if analysis_ran else 0.0
+    conf_pct = signal_pct if is_fake else round(100.0 - signal_pct, 2) if analysis_ran else None
 
     breakdown = {
-        "Whole-Image AI Generation Signal (%)": ai_gen_score,
+        **({"Whole-Image AI Generation Signal (%)": ai_gen_score} if ai_gen_score is not None else {}),
         **({"Legacy Full-Image Classifier Signal (%)": legacy_ai_score} if legacy_ai_score is not None else {}),
         **({"Face-Crop ViT Signal (%)": deepfake_score} if face_crop is not None and df_clf else {}),
         **({"Face-Crop EfficientNet CNN Signal (%)": cnn_score} if cnn_score is not None else {}),
@@ -104,7 +104,7 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         **provenance_fingerprint(contents, "image", Image.MIME.get(raw.format, "application/octet-stream")),
     })
 
-    record_telemetry("Image", is_fake, conf_pct, "Neutral", breakdown)
+    record_telemetry("Image", is_fake, conf_pct if conf_pct is not None else 0.0, "Neutral", breakdown)
     if face_model_ran:
         ann_b64, mask_b64 = generate_tampering_mask_and_bbox(rgb, is_fake)
     else:
@@ -140,11 +140,11 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         "signal_pct": signal_pct,
         "gauge_value_pct": signal_pct,
         "face_signal_pct": face_ensemble,
-        "preview": f"Whole-image AI-generation score: {signal_pct}%" + (f" | separate face-forgery score: {face_ensemble}%" if face_model_ran else " | no face crop analyzed"),
+        "preview": (f"Whole-image AI-generation score: {signal_pct}%" if analysis_ran else "Whole-image AI-generation score unavailable") + (f" | separate face-forgery score: {face_ensemble}%" if face_model_ran else " | no face crop analyzed"),
         "metadata": metadata,
         "assessment": assessment,
         "gauge_title": "Whole-image AI-generation signal",
-        "gauge_label": "Separate from face-forgery screening; not proof",
+        "gauge_label": "Separate from face-forgery screening; not proof" if analysis_ran else "Unavailable: no whole-image model produced a score",
         "annotated_image_b64": ann_b64,
         "tampering_mask_b64": mask_b64,
         "ela_heatmap_b64": forensics["ela_b64"],

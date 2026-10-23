@@ -826,17 +826,23 @@ function renderResult(data) {
   }
 
   // Update Semi-Circular Gauge
-  const fakeScore = Number.isFinite(data.gauge_value_pct) ? data.gauge_value_pct : isInconclusive ? (data.signal_pct ?? data.confidence_pct) : isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
+  const imageSignalUnavailable = data.modality === "Image" && !Number.isFinite(data.gauge_value_pct);
+  const candidateScore = Number.isFinite(data.gauge_value_pct) ? data.gauge_value_pct
+    : imageSignalUnavailable ? null
+      : isInconclusive ? (Number.isFinite(data.signal_pct) ? data.signal_pct : Number.isFinite(data.confidence_pct) ? data.confidence_pct : null)
+        : isFake ? data.confidence_pct : Math.round(100 - data.confidence_pct);
+  const gaugeAvailable = Number.isFinite(candidateScore);
+  const fakeScore = gaugeAvailable ? Math.max(0, Math.min(100, candidateScore)) : 0;
   gaugeChart.data.datasets[0].data = [fakeScore, 100 - fakeScore];
   gaugeChart.data.datasets[0].backgroundColor = [
-    fakeScore >= 50 ? "#f43f5e" : "#10b981",
+    gaugeAvailable ? (fakeScore >= 50 ? "#f43f5e" : "#10b981") : "#334155",
     "#1e293b"
   ];
   gaugeChart.update();
   document.getElementById("gaugeTitle").textContent = data.gauge_title || "Estimated synthetic signal";
   document.getElementById("gaugeLabel").textContent = data.gauge_label || "Model-estimated signal, not proof";
-  document.getElementById("gaugeValue").textContent = `${fakeScore}%`;
-  document.getElementById("gaugeValue").className = `text-2xl font-black mono ${fakeScore >= 50 ? "text-rose-400" : "text-emerald-400"}`;
+  document.getElementById("gaugeValue").textContent = gaugeAvailable ? `${fakeScore}%` : "Unavailable";
+  document.getElementById("gaugeValue").className = `text-2xl font-black mono ${!gaugeAvailable ? "text-slate-400" : fakeScore >= 50 ? "text-rose-400" : "text-emerald-400"}`;
   document.getElementById("bboxCard").classList.toggle("hidden", !data.annotated_image_b64);
   document.getElementById("maskCard").classList.toggle("hidden", !data.tampering_mask_b64);
 
