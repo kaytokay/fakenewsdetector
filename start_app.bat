@@ -89,10 +89,16 @@ exit /b 0
 set "PYTHON_EXE=%~dp0env\Scripts\python.exe"
 
 if not exist "%PYTHON_EXE%" (
-    echo Virtual environment not found at: "%PYTHON_EXE%"
-    echo Please make sure the project has been set up first.
-    exit /b 1
+    echo Creating project virtual environment...
+    py -3 -m venv "%~dp0env"
+    if errorlevel 1 (
+        echo Could not create the virtual environment. Install Python 3.11 or newer and retry.
+        exit /b 1
+    )
 )
+
+call :VerifyLibraries
+if errorlevel 1 exit /b 1
 
 call :FindListener
 if defined PID (
@@ -149,7 +155,7 @@ exit /b 0
 :WaitForReady
 set /a WAITED=0
 :wait_for_ready
-curl.exe --silent --fail --output NUL --max-time 2 http://127.0.0.1:8000/ >nul 2>&1
+curl.exe --silent --fail --output NUL --max-time 2 http://127.0.0.1:8000/health/ready >nul 2>&1
 if not errorlevel 1 exit /b 0
 if %WAITED% GEQ 120 exit /b 1
 ping 127.0.0.1 -n 2 >nul
@@ -159,4 +165,18 @@ goto wait_for_ready
 :FindListener
 set "PID="
 for /f "tokens=5" %%A in ('netstat -ano -p tcp ^| findstr /R /C:":8000 .*LISTENING"') do if not defined PID set "PID=%%A"
+exit /b 0
+
+:VerifyLibraries
+echo Checking required Python libraries and installing missing or incompatible packages...
+"%PYTHON_EXE%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo Python pip is unavailable. Run: "%PYTHON_EXE%" -m ensurepip --upgrade
+    exit /b 1
+)
+"%PYTHON_EXE%" -m pip install -r "%~dp0requirements.txt"
+if errorlevel 1 (
+    echo Library verification or installation failed. Check your internet connection and requirements.txt.
+    exit /b 1
+)
 exit /b 0

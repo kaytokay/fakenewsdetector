@@ -10,6 +10,7 @@ import os
 import socket
 import sys
 import tempfile
+import time
 
 # Ensure standard output uses UTF-8 to prevent Windows charmap exceptions
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -25,8 +26,11 @@ import numpy as np
 import torch
 from functools import lru_cache
 from PIL import ExifTags, Image, ImageChops, ImageEnhance
+import warnings
 import re
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -45,6 +49,12 @@ from torch import nn
 # Global model store & live session telemetry
 # ---------------------------------------------------------------------------
 ml_models = {}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
+MAX_VIDEO_SECONDS = 120
+MAX_VIDEO_FRAMES = 120
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+warnings.simplefilter("error", Image.DecompressionBombWarning)
 live_analytics = {
     "total_analyzed": 0,
     "verdict_counts": {"Lower signal": 0, "Elevated signal": 0},
@@ -139,11 +149,29 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[origin.strip() for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",") if origin.strip()],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.get("/health/live")
+async def health_live():
+    """Process liveness; does not imply model readiness."""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Expose per-model availability and gate readiness on the text classifier."""
+    capabilities = {name: name in ml_models for name in (
+        "text_classifier", "ai_image_detector", "whole_image_detector",
+        "deepfake_detector", "cnn_deepfake_detector", "ocr_reader",
+    )}
+    if not capabilities["text_classifier"]:
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "models": capabilities})
+    return {"status": "ready", "models": capabilities}
 
 
 @app.get("/")
@@ -167,6 +195,29 @@ class URLInput(BaseModel):
 # Forensic & Heuristic Helpers
 # ---------------------------------------------------------------------------
 
+async def read_upload_limited(file: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
+    """Read no more than limit+1 bytes so oversized uploads fail before decoding."""
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"Upload exceeds the {limit // (1024 * 1024)} MB limit.")
+    return data
+
+
+def text_fake_score(prediction: dict, classifier) -> float:
+    """Map text model output using semantic config labels or the known model mapping."""
+    label = str(prediction.get("label", "")).strip().lower()
+    config = getattr(getattr(classifier, "model", None), "config", None)
+    id2label = getattr(config, "id2label", {}) or {}
+    mapped = str(id2label.get(label, id2label.get(int(label.split("_")[-1]), "")) if label.startswith("label_") else "").lower()
+    resolved = mapped or label
+    fake_names = {"fake", "false", "misinformation", "misleading", "label_0"}
+    real_names = {"real", "true", "reliable", "genuine", "label_1"}
+    if resolved in fake_names:
+        return round(float(prediction["score"]) * 100, 2)
+    if resolved in real_names:
+        return round((1 - float(prediction["score"])) * 100, 2)
+    raise HTTPException(status_code=422, detail=f"Text classifier returned an unknown label: {label or '(empty)'}")
+
 def analyze_sentiment(text: str) -> tuple:
     """TextBlob sentiment analysis — matches IIT Patna FDT Paper 4."""
     blob = TextBlob(text)
@@ -179,42 +230,65 @@ def analyze_sentiment(text: str) -> tuple:
     return "Neutral", polarity, subjectivity
 
 
+class PinnedAddressAdapter(HTTPAdapter):
+    """Connect to a validated IP while preserving the URL hostname for TLS and Host."""
+    def __init__(self, hostname: str, address: str, port: int, scheme: str):
+        super().__init__(max_retries=0)
+        self.hostname, self.address, self.port, self.scheme = hostname, address, port, scheme
+
+    def get_connection(self, url, proxies=None):
+        if self.scheme == "https":
+            return HTTPSConnectionPool(
+                host=self.address, port=self.port, maxsize=1, block=True,
+                assert_hostname=self.hostname, server_hostname=self.hostname,
+            )
+        return HTTPConnectionPool(host=self.address, port=self.port, maxsize=1, block=True)
+
+
 def fetch_public_url(url: str):
-    """Fetch a public HTTP(S) URL without following redirects into private networks."""
+    """Fetch a bounded public URL using the exact IP address checked before connecting."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Use a public http:// or https:// URL.")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))}
-        if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
-            raise ValueError("The URL must resolve to a public host.")
-    except (socket.gaierror, ValueError) as exc:
-        if isinstance(exc, ValueError):
-            raise
-    browser_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Ch-Ua": '"Chromium";v="129", "Not=A?Brand";v="24"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Upgrade-Insecure-Requests": "1",
+        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)}
+    except socket.gaierror as exc:
+        raise ValueError("The URL host could not be resolved.") from exc
+    parsed_addresses = [ipaddress.ip_address(address) for address in addresses]
+    if not parsed_addresses or any(not address.is_global for address in parsed_addresses):
+        raise ValueError("The URL must resolve only to public addresses.")
+    # Choose a resolved address and pin the socket to it; DNS cannot change between
+    # validation and connection. TLS still verifies the original URL hostname.
+    address = str(sorted(parsed_addresses, key=lambda item: (item.version, int(item)))[0])
+    host_header = parsed.hostname if port in (80, 443) else f"{parsed.hostname}:{port}"
+    if ":" in parsed.hostname:
+        host_header = f"[{parsed.hostname}]" if port in (80, 443) else f"[{parsed.hostname}]:{port}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; TruthShield/1.0)",
+        "Accept": "text/html,application/xhtml+xml,application/xml,image/*;q=0.9,*/*;q=0.8",
+        "Host": host_header,
     }
-    response = requests.get(url, headers=browser_headers, timeout=10, allow_redirects=False, stream=True)
-    if 300 <= response.status_code < 400:
-        response.close()
-        raise ValueError("Redirects are not followed. Enter the destination URL directly.")
-    response.raise_for_status()
-    chunks = []
-    size = 0
-    for chunk in response.iter_content(64 * 1024):
-        size += len(chunk)
-        if size > 12 * 1024 * 1024:
+    response = requests.Response()
+    with requests.Session() as session:
+        session.trust_env = False
+        session.mount("http://", PinnedAddressAdapter(parsed.hostname, address, port, parsed.scheme))
+        session.mount("https://", PinnedAddressAdapter(parsed.hostname, address, port, parsed.scheme))
+        response = session.get(url, headers=headers, timeout=10, allow_redirects=False, stream=True)
+        if 300 <= response.status_code < 400:
             response.close()
-            raise ValueError("The URL response is larger than the 12 MB limit.")
-        chunks.append(chunk)
-    response._content = b"".join(chunks)
-    response.close()
+            raise ValueError("Redirects are not followed. Enter the destination URL directly.")
+        response.raise_for_status()
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(64 * 1024):
+            size += len(chunk)
+            if size > 12 * 1024 * 1024:
+                response.close()
+                raise ValueError("The URL response is larger than the 12 MB limit.")
+            chunks.append(chunk)
+        response._content = b"".join(chunks)
+        response.close()
     return response
 
 
@@ -465,7 +539,7 @@ def extract_fake_score(preds: list) -> float:
         if any(k in lbl for k in real_keywords):
             return round((1.0 - float(p.get("score", 0.0))) * 100, 2)
 
-    return round(float(preds[0].get("score", 0.0)) * 100, 2)
+    raise ValueError("Vision classifier returned an unknown label; refusing to guess its meaning.")
 
 
 _AI_FILENAME_KEYWORDS = [
@@ -701,37 +775,22 @@ def compute_image_forensics(image: Image.Image) -> dict:
     }
 
 
-def compute_academic_metrics(y_true_binary: int, confidence: float) -> dict:
-    """
-    Academic benchmark evaluation metrics: Accuracy, Precision, Recall, F1, MCC,
-    and a 2x2 Confusion Matrix (TP, FP, FN, TN) conforming to TransStacking & Guardian-AI.
-    """
-    predicted_binary = 1 if confidence >= 0.5 else 0
-    tp = 1 if (y_true_binary == 1 and predicted_binary == 1) else 0
-    tn = 1 if (y_true_binary == 0 and predicted_binary == 0) else 0
-    fp = 1 if (y_true_binary == 0 and predicted_binary == 1) else 0
-    fn = 1 if (y_true_binary == 1 and predicted_binary == 0) else 0
-
-    precision = round(tp / (tp + fp) if (tp + fp) > 0 else 0.95, 4)
-    recall = round(tp / (tp + fn) if (tp + fn) > 0 else 0.94, 4)
-    f1 = round(
-        2 * (precision * recall) / (precision + recall)
-        if (precision + recall) > 0 else 0.945,
-        4,
-    )
-
-    mcc_num = (tp * tn) - (fp * fn)
-    mcc_den = float(np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
-    mcc = round(mcc_num / mcc_den if mcc_den > 0 else 0.92, 4)
-
-    return {
-        "Accuracy": f"{round(confidence * 100, 2)}%",
-        "Precision": precision,
-        "Recall": recall,
-        "F1_Score": f1,
-        "MCC": mcc,
-        "Confusion_Matrix": {"TP": tp, "FP": fp, "FN": fn, "TN": tn},
-    }
+def compute_academic_metrics(y_true: list[int], y_pred: list[int]) -> dict:
+    """Compute binary metrics from labeled evaluation samples; positive class is 1."""
+    if not y_true or len(y_true) != len(y_pred):
+        raise ValueError("Expected equally sized, non-empty labeled and predicted samples.")
+    if any(value not in (0, 1) for value in (*y_true, *y_pred)):
+        raise ValueError("Labels and predictions must be binary (0 or 1).")
+    tp = sum(a == 1 and b == 1 for a, b in zip(y_true, y_pred))
+    tn = sum(a == 0 and b == 0 for a, b in zip(y_true, y_pred))
+    fp = sum(a == 0 and b == 1 for a, b in zip(y_true, y_pred))
+    fn = sum(a == 1 and b == 0 for a, b in zip(y_true, y_pred))
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    denominator = float(np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
+    mcc = ((tp * tn) - (fp * fn)) / denominator if denominator else 0.0
+    return {"sample_size": len(y_true), "class_distribution": {"positive": sum(y_true), "negative": len(y_true) - sum(y_true)}, "Accuracy": round((tp + tn) / len(y_true), 4), "Precision": round(precision, 4), "Recall": round(recall, 4), "F1_Score": round(f1, 4), "MCC": round(mcc, 4), "Confusion_Matrix": {"TP": tp, "FP": fp, "FN": fn, "TN": tn}}
 
 
 def generate_tampering_mask_and_bbox(image: Image.Image, is_fake: bool) -> tuple[str, str]:
@@ -856,14 +915,12 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
     # 2. BERT stylistic classification
     res = await run_in_threadpool(classifier, clean, truncation=True, max_length=512)
     pred = res[0]
-    raw_fake = pred["label"] == "LABEL_0"
-    raw_conf = round(pred["score"] * 100, 2)
-    raw_fake_prob = raw_conf if raw_fake else round(100 - raw_conf, 2)
+    raw_fake_prob = text_fake_score(pred, classifier)
 
     # Related coverage is useful context, but a search result cannot verify a claim.
     fake_prob = raw_fake_prob
-    is_fake = fake_prob >= 50.0 and not direct_match
-    verdict = "Likely authentic article — matching publisher headline found" if direct_match else "Unverified — no direct publisher headline match found"
+    is_fake = fake_prob >= 50.0
+    verdict = "Elevated misinformation signals" if is_fake else ("Classifier signal below screening threshold; publisher match found" if direct_match else "Unverified — no direct publisher headline match found")
     conf_pct = fake_prob if is_fake else round(100 - fake_prob, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(clean)
@@ -873,7 +930,7 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
         "Subjectivity / Bias (%)": subjectivity,
     }
     assessment = {
-        "status": "LIKELY AUTHENTIC ARTICLE" if direct_match else "UNVERIFIED",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("PUBLISHER_MATCH_CLASSIFIER_LOW" if direct_match else "INCONCLUSIVE"),
         "authenticity_score_pct": web_check.get("authenticity_score_pct"),
         "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet; it does not verify every claim in the article." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity or whether its claims are true.",
         "evidence": [
@@ -916,9 +973,14 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     if not (ocr and t_clf and img_clf):
         raise HTTPException(status_code=500, detail="Models still loading.")
 
-    contents = await file.read()
+    contents = await read_upload_limited(file)
     try:
-        image = Image.open(BytesIO(contents)).convert("RGB")
+        image = Image.open(BytesIO(contents))
+        if image.width * image.height > MAX_IMAGE_PIXELS:
+            raise HTTPException(status_code=413, detail="Image exceeds the 40 megapixel limit.")
+        image = image.convert("RGB")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file.")
 
@@ -935,7 +997,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     # C — BERT stylistic analysis
     t_res = await run_in_threadpool(t_clf, text, truncation=True, max_length=512)
     t_pred = t_res[0]
-    raw_text_fake = t_pred["score"] * 100 if t_pred["label"] == "LABEL_0" else (100 - t_pred["score"] * 100)
+    raw_text_fake = text_fake_score(t_pred, t_clf)
 
     # D — Visual signal is reported separately: a whole-page screenshot is not a suitable
     # input for an AI-generated-image classifier, and that score must not decide claim truth.
@@ -945,8 +1007,8 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     # E — News claim screening is based on OCR text; keep screenshot appearance separate.
     text_fake = round(raw_text_fake, 2)
     combined_fake = text_fake
-    is_fake = text_fake >= 50.0 and not direct_match
-    verdict = "Likely authentic article — matching publisher headline found" if direct_match else "Unverified — no direct publisher headline match found"
+    is_fake = text_fake >= 50.0
+    verdict = "Elevated misinformation signals" if is_fake else ("Classifier signal below screening threshold; publisher match found" if direct_match else "Unverified — no direct publisher headline match found")
     conf_pct = combined_fake if is_fake else round(100.0 - combined_fake, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(text)
@@ -967,7 +1029,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     }
 
     assessment = {
-        "status": "LIKELY AUTHENTIC ARTICLE" if direct_match else "UNVERIFIED",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("PUBLISHER_MATCH_CLASSIFIER_LOW" if direct_match else "INCONCLUSIVE"),
         "authenticity_score_pct": web_check.get("authenticity_score_pct"),
         "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet. It does not prove the screenshot is unaltered, the photo is genuine, or every claim is accurate." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity; the whole-page image score cannot determine whether its embedded photo is AI-generated.",
         "evidence": [
@@ -1004,10 +1066,14 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     if not (whole_detector or ai_clf or df_clf or cnn_entry):
         raise HTTPException(status_code=500, detail="AI image detection models are still loading.")
 
-    contents = await file.read()
+    contents = await read_upload_limited(file)
     try:
         raw = Image.open(BytesIO(contents))
+        if raw.width * raw.height > MAX_IMAGE_PIXELS:
+            raise HTTPException(status_code=413, detail="Image exceeds the 40 megapixel limit.")
         rgb = raw.convert("RGB")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file format.")
 
@@ -1143,7 +1209,7 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
     if not (vit_clf or cnn_entry or ai_clf or whole_detector):
         raise HTTPException(status_code=500, detail="Video deepfake vision model not loaded.")
 
-    contents = await file.read()
+    contents = await read_upload_limited(file)
     suffix = os.path.splitext(file.filename or "")[1] or ".mp4"
     tmp_path = None
     cap = None
@@ -1159,6 +1225,11 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
         reported_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+            raise HTTPException(status_code=413, detail="Video frame resolution exceeds the 40 megapixel limit.")
+        duration_reported = reported_frames / fps if fps > 0 and reported_frames > 0 else 0
+        if duration_reported > MAX_VIDEO_SECONDS:
+            raise HTTPException(status_code=413, detail="Video exceeds the 120 second limit.")
         fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
         fourcc = "".join(chr((fourcc_int >> (8 * i)) & 0xFF) for i in range(4)).strip("\x00 ") or "Unknown"
         timeline = []
@@ -1168,10 +1239,14 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
         all_patch_means = []
         all_patch_stds = []
         frame_index = 0
+        sampled_frames = 0
+        sample_interval = max(1, int(fps))  # one frame per second, capped below
+        processing_started = time.monotonic()
 
-        # Sequential decode: run whole-image AI scoring and pixel statistics on
-        # every frame, plus face-specific models wherever a face is present.
-        while True:
+        # Sample one frame per second and enforce duration, frame-count and wall-clock budgets.
+        while sampled_frames < MAX_VIDEO_FRAMES:
+            if time.monotonic() - processing_started > MAX_VIDEO_SECONDS:
+                raise HTTPException(status_code=413, detail="Video analysis exceeded its 120 second processing budget.")
             ok, frame = cap.read()
             if not ok:
                 break
@@ -1235,7 +1310,11 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
                 "pixel_residual_variation": patch_std,
                 "basis": basis,
             })
-            frame_index += 1
+            frame_index += sample_interval
+            sampled_frames += 1
+            for _ in range(sample_interval - 1):
+                if not cap.grab():
+                    break
     finally:
         if cap is not None:
             cap.release()
@@ -1249,7 +1328,7 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Could not extract frames from video.")
 
     total_frames = len(timeline)
-    duration_sec = round(total_frames / fps, 2) if fps > 0 else 0
+    duration_sec = round(reported_frames / fps, 2) if fps > 0 and reported_frames > 0 else round(total_frames * sample_interval / fps, 2) if fps > 0 else 0
     fake_count = sum(score >= 50.0 for score in face_scores)
     fake_ratio = round(fake_count / len(face_scores) * 100, 2) if face_scores else 0.0
     avg_face_signal = round(float(np.mean(face_scores)), 2) if face_scores else None
@@ -1283,7 +1362,7 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
     metadata = {
         "Filename": file.filename,
         "Duration": f"{duration_sec}s ({round(fps, 1)} FPS)",
-        "Frame_Scan": f"Scanned every decoded frame: {total_frames} / container reported {reported_frames}",
+        "Frame_Scan": f"Sampled {total_frames} frames at approximately 1 frame/second from {reported_frames} reported frames (maximum {MAX_VIDEO_FRAMES})",
         "Frame_Dimensions": f"{width}x{height}",
         "Video_Codec_FourCC": fourcc,
         "Face_Frames_Analyzed": f"{len(face_scores)} of {total_frames}",
@@ -1301,13 +1380,13 @@ async def analyze_video_endpoint(file: UploadFile = File(...)):
         "elevated_signals": is_fake,
         "confidence_pct": conf_pct,
         "signal_pct": signal_pct,
-        "preview": f"Scanned every decoded frame: whole-image model on {len(whole_image_scores)}/{total_frames}; face models on {len(face_scores)}/{total_frames}.",
+        "preview": f"Sampled approximately 1 frame/second: whole-image model on {len(whole_image_scores)}/{total_frames}; face models on {len(face_scores)}/{total_frames}.",
         "metadata": metadata,
         "assessment": {
             "status": "INCONCLUSIVE" if inconclusive else "MODEL SIGNAL" if is_fake else "NO STRONG SIGNALS",
-            "summary": "Every decoded frame receives whole-image AI-generation analysis and pixel statistics; face-forgery models and exploratory rPPG run where conditions permit. These are screening signals, not proof of origin or authenticity." if not inconclusive else "Every decoded frame was scanned, but no usable image or face model signal was available.",
+            "summary": "Frames are sampled at approximately 1 frame/second within duration, frame-count, resolution, upload-size, and processing-time limits. These are screening signals, not proof of origin or authenticity." if not inconclusive else "Frames were sampled within configured resource limits, but no usable image or face model signal was available.",
             "evidence": [
-                {"label": "Frame coverage", "detail": f"{total_frames} of {total_frames} decoded frames analyzed."},
+                {"label": "Frame coverage", "detail": f"{total_frames} sampled frames analyzed at approximately 1 frame/second."},
                 {"label": "Whole-image AI generation", "detail": f"Scored {len(whole_image_scores)} frames; mean {avg_whole_signal}%, {whole_elevated_ratio}% above the screening threshold. Whole-image model score is a research estimate, not proof." if whole_image_scores else "Whole-image detector unavailable."},
                 {"label": "Face-region forgery ensemble", "detail": f"{' + '.join(video_model_names)} signals on {len(face_scores)} frames; mean {avg_face_signal}% and elevated on {fake_count} frames. Scores are not calibrated probabilities." if face_scores else "No face crops found; whole-image analysis still ran on each decoded frame."},
                 {"label": "rPPG", "detail": f"{rppg_detail}. This physiological signal is affected by lighting, motion, compression, skin visibility, and may be present in deepfakes."},
@@ -1344,13 +1423,17 @@ async def analyze_url_endpoint(payload: URLInput):
     if "image" in ctype or payload.url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         try:
             raw = Image.open(BytesIO(resp.content))
+            if raw.width * raw.height > MAX_IMAGE_PIXELS:
+                raise HTTPException(status_code=413, detail="Image exceeds the 40 megapixel limit.")
             rgb = raw.convert("RGB")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="URL did not return a valid readable image.")
 
-        clf = ml_models.get("ai_image_detector") or ml_models.get("deepfake_detector")
+        clf = ml_models.get("ai_image_detector")
         if not clf:
-            raise HTTPException(status_code=500, detail="Vision detection models are still loading.")
+            raise HTTPException(status_code=503, detail="Whole-image AI-generation detector is unavailable; face-forgery models are not compatible with this input.")
 
         preds = await run_in_threadpool(clf, rgb)
         vit_fake = extract_fake_score(preds)
