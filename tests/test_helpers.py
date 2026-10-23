@@ -1,4 +1,5 @@
 import unittest
+from fastapi import HTTPException
 import numpy as np
 from PIL import Image
 import os
@@ -11,6 +12,7 @@ from main import (
     analyze_sentiment,
     extract_exif_metadata,
     extract_fake_score,
+    text_fake_score,
     filename_ai_penalty,
     resolution_ai_penalty,
     compute_image_forensics,
@@ -22,6 +24,20 @@ from main import (
 
 
 class TestForensicHelpers(unittest.TestCase):
+
+    def test_text_fake_score_uses_known_mapping_when_mock_metadata_is_not_a_mapping(self):
+        from unittest.mock import MagicMock
+        classifier = MagicMock()
+        classifier.model.config.id2label = MagicMock()
+        self.assertEqual(text_fake_score({"label": "LABEL_0", "score": 0.7}, classifier), 70.0)
+        self.assertEqual(text_fake_score({"label": "LABEL_1", "score": 0.9}, classifier), 10.0)
+
+    def test_text_fake_score_respects_real_reversed_config_mapping(self):
+        from unittest.mock import MagicMock
+        classifier = MagicMock()
+        classifier.model.config.id2label = {0: "real", 1: "fake"}
+        self.assertEqual(text_fake_score({"label": "LABEL_0", "score": 0.8}, classifier), 20.0)
+        self.assertEqual(text_fake_score({"label": "LABEL_1", "score": 0.6}, classifier), 60.0)
 
     def test_sentiment_positive(self):
         text = "This is a wonderful, fantastic and highly successful breakthrough!"
@@ -78,10 +94,14 @@ class TestForensicHelpers(unittest.TestCase):
         preds = [{"label": "authentic", "score": 0.80}]
         self.assertEqual(extract_fake_score(preds), 20.0)
 
-    def test_extract_fake_score_empty_or_unknown(self):
-        self.assertEqual(extract_fake_score([]), 0.0)
+    def test_extract_fake_score_empty_or_unknown_is_inconclusive(self):
+        with self.assertRaises(HTTPException) as empty_error:
+            extract_fake_score([])
+        self.assertEqual(empty_error.exception.status_code, 503)
         preds = [{"label": "unknown_label", "score": 0.65}]
-        self.assertEqual(extract_fake_score(preds), 65.0)
+        with self.assertRaises(HTTPException) as label_error:
+            extract_fake_score(preds)
+        self.assertEqual(label_error.exception.status_code, 503)
 
     def test_filename_ai_penalty(self):
         self.assertEqual(filename_ai_penalty("midjourney_v6_portrait.png"), 35.0)
@@ -124,21 +144,20 @@ class TestForensicHelpers(unittest.TestCase):
         self.assertEqual(forensics["hf_ratio"], 0.0)
 
     def test_compute_academic_metrics(self):
-        # True Positive case
-        tp_res = compute_academic_metrics(y_true_binary=1, confidence=0.92)
-        self.assertEqual(tp_res["Accuracy"], "92.0%")
-        self.assertEqual(tp_res["Confusion_Matrix"]["TP"], 1)
+        # The helper accepts labeled sample lists; score thresholds are applied by callers.
+        tp_res = compute_academic_metrics(y_true=[1, 0, 1], y_pred=[1, 0, 1])
+        self.assertEqual(tp_res["Accuracy"], 1.0)
+        self.assertEqual(tp_res["Confusion_Matrix"]["TP"], 2)
         self.assertEqual(tp_res["Confusion_Matrix"]["FP"], 0)
         self.assertGreater(tp_res["Precision"], 0.0)
         self.assertGreater(tp_res["Recall"], 0.0)
         self.assertGreater(tp_res["F1_Score"], 0.0)
         self.assertGreater(tp_res["MCC"], 0.0)
 
-        # True Negative case
-        tn_res = compute_academic_metrics(y_true_binary=0, confidence=0.10)
-        self.assertEqual(tn_res["Confusion_Matrix"]["TN"], 1)
-        self.assertEqual(tn_res["Confusion_Matrix"]["TP"], 0)
-        self.assertFalse(np.isnan(tn_res["MCC"]))
+        mixed_res = compute_academic_metrics(y_true=[1, 0, 1, 0], y_pred=[0, 0, 1, 1])
+        self.assertEqual(mixed_res["Confusion_Matrix"], {"TP": 1, "FP": 1, "FN": 1, "TN": 1})
+        self.assertEqual(mixed_res["Accuracy"], 0.5)
+        self.assertEqual(mixed_res["MCC"], 0.0)
 
     def test_generate_tampering_mask_and_bbox(self):
         img = Image.new("RGB", (120, 120), color=(100, 150, 200))

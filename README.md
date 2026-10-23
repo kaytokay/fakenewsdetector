@@ -30,7 +30,7 @@ Open PowerShell in the project directory:
 py -3.11 -m venv env
 .\env\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt
 python -m textblob.download_corpora
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
@@ -52,7 +52,7 @@ Then open [http://localhost:8000](http://localhost:8000). The image installs dep
 
 ## API
 
-The dashboard and API are served from the same origin. FastAPI's interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) while the app is running.
+The dashboard and API are served from the same origin. FastAPI's interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) while the app is running. `/stream-stats` exposes aggregate in-memory session telemetry and limits concurrent clients to eight.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
@@ -85,16 +85,21 @@ Image scores from whole-image AI-generation and face-forgery models are shown se
 Run the repository's Python tests with:
 
 ```sh
-python -m unittest discover -s tests
+python -m pytest -q
 ```
 
-Some end-to-end checks may need network access or loaded model dependencies.
+Live-model integration checks are skipped unless `RUN_LIVE_MODELS=1` is set. URL-fetch security tests mock DNS and HTTP and do not make network requests.
 
 ## Project files
 
-- `main.py` — FastAPI app, model setup, and analysis endpoints.
+- `main.py` — stable ASGI entry point (`main:app`).
+- `truthshield/application.py` — FastAPI setup and model lifecycle.
+- `truthshield/routes/` — claim, media, URL, and telemetry endpoints.
+- `truthshield/services/` — URL security, text search, media analysis, and telemetry helpers.
+- `truthshield/state.py` — shared model state, analytics, and resource limits.
 - `index.html` — browser interface.
-- `requirements.txt` — Python dependencies.
+- `requirements.txt` — pinned direct dependencies.
+- `requirements-lock.txt` — exact tested environment snapshot, including transitive dependencies.
 - `Dockerfile` — container build and launch instructions.
 - `start_app.bat` — Windows local app manager.
 - `tests/` — helper, endpoint, and end-to-end tests.

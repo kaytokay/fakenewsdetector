@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 # Ensure project root is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from main import app, ml_models, live_analytics
+from main import app, ml_models, live_analytics, telemetry_connections, MAX_TELEMETRY_CONNECTIONS
 
 
 class TestAPIEndpoints(unittest.TestCase):
@@ -38,8 +38,8 @@ class TestAPIEndpoints(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
-        self.assertIn("Guardian-FDT", response.text)
-        self.assertIn("Forensic Suite", response.text)
+        self.assertIn("TruthShield", response.text)
+        self.assertIn("Review news claims", response.text)
 
     # -----------------------------------------------------------------------
     # 2. Text Analysis Endpoint (POST /analyze-text)
@@ -55,7 +55,31 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("at least 10 characters", response.json()["detail"])
 
-    @patch("main.verify_news_on_web")
+    @patch("truthshield.routes.claims.verify_news_on_web", return_value={"corroborated": False, "match_count": 0, "sources": [], "query": ""})
+    def test_empty_text_classifier_output_is_inconclusive(self, _mock_web):
+        ml_models["text_classifier"] = MagicMock(return_value=[])
+        response = self.client.post("/analyze-text", json={"text": "A sufficiently long claim for classifier testing."})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("inconclusive", response.json()["detail"])
+
+    def test_telemetry_stream_rejects_connections_over_limit(self):
+        acquired = [telemetry_connections.acquire(blocking=False) for _ in range(MAX_TELEMETRY_CONNECTIONS)]
+        try:
+            self.assertTrue(all(acquired))
+            response = self.client.get("/stream-stats")
+            self.assertEqual(response.status_code, 429)
+        finally:
+            for _ in acquired:
+                telemetry_connections.release()
+
+    @patch("truthshield.routes.claims.verify_news_on_web", return_value={"corroborated": False, "match_count": 0, "sources": [], "query": ""})
+    def test_empty_text_classifier_output_is_inconclusive(self, _mock_web):
+        ml_models["text_classifier"] = MagicMock(return_value=[])
+        response = self.client.post("/analyze-text", json={"text": "A sufficiently long claim for classifier testing."})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("inconclusive", response.json()["detail"])
+
+    @patch("truthshield.routes.claims.verify_news_on_web")
     def test_analyze_text_success_unverified(self, mock_web):
         mock_web.return_value = {
             "corroborated": False,
@@ -79,7 +103,7 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertIn("bar_chart_data", data)
         self.assertIn("live_stats", data)
 
-    @patch("main.verify_news_on_web")
+    @patch("truthshield.routes.claims.verify_news_on_web")
     def test_analyze_text_success_corroborated(self, mock_web):
         mock_web.return_value = {
             "corroborated": True,
@@ -142,7 +166,7 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not extract enough text", response.json()["detail"])
 
-    @patch("main.verify_news_on_web")
+    @patch("truthshield.routes.claims.verify_news_on_web")
     def test_analyze_screenshot_success(self, mock_web):
         mock_web.return_value = {"corroborated": False, "match_count": 0, "sources": [], "query": "breaking election update"}
         mock_ocr = MagicMock()
@@ -168,8 +192,8 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(data["modality"], "Screenshot")
         self.assertIn("prediction", data)
         self.assertIn("elevated_signals", data)
-        self.assertIn("annotated_image_b64", data)
-        self.assertIn("tampering_mask_b64", data)
+        self.assertIn("Whole_Screenshot_AI_Image_Signal", data["metadata"])
+        self.assertNotIn("annotated_image_b64", data)
 
     # -----------------------------------------------------------------------
     # 4. Image Deepfake Analysis Endpoint (POST /analyze-image)
@@ -190,6 +214,17 @@ class TestAPIEndpoints(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Invalid image", response.json()["detail"])
+
+    def test_empty_vision_classifier_output_returns_explicit_unavailable_error(self):
+        ml_models["ai_image_detector"] = MagicMock(return_value=[])
+        buf = BytesIO()
+        Image.new("RGB", (100, 100), color=(120, 120, 120)).save(buf, format="PNG")
+        response = self.client.post(
+            "/analyze-image",
+            files={"file": ("empty-result.png", buf.getvalue(), "image/png")},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("no media signal", response.json()["detail"])
 
     def test_analyze_image_success_with_ai_filename(self):
         mock_ai = MagicMock(return_value=[{"label": "artificial", "score": 0.82}])
@@ -212,7 +247,7 @@ class TestAPIEndpoints(unittest.TestCase):
         data = response.json()
 
         self.assertEqual(data["modality"], "Image")
-        self.assertEqual(data["prediction"], "Elevated synthetic signals")
+        self.assertEqual(data["prediction"], "Elevated whole-image AI-generation signal")
         self.assertTrue(data["elevated_signals"])
         self.assertGreaterEqual(data["confidence_pct"], 50.0)
         self.assertIn("ela_heatmap_b64", data)
@@ -254,7 +289,7 @@ class TestAPIEndpoints(unittest.TestCase):
             files={"file": ("corrupt.mp4", b"not-a-video-file", "video/mp4")}
         )
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Could not extract frames", response.json()["detail"])
+        self.assertIn("Could not open this video file", response.json()["detail"])
 
     def test_analyze_video_valid_synthetic_video(self):
         mock_df = MagicMock(return_value=[{"label": "deepfake", "score": 0.85}])
@@ -283,8 +318,9 @@ class TestAPIEndpoints(unittest.TestCase):
         data = response.json()
 
         self.assertEqual(data["modality"], "Video")
-        self.assertEqual(data["prediction"], "Elevated synthetic signals")
-        self.assertTrue(data["elevated_signals"])
+        self.assertIn("Inconclusive", data["prediction"])
+        self.assertFalse(data["elevated_signals"])
+        self.assertEqual(data["assessment"]["status"], "INCONCLUSIVE")
         self.assertIn("video_timeline", data)
         self.assertGreater(len(data["video_timeline"]), 0)
         self.assertIn("metadata", data)
@@ -294,7 +330,7 @@ class TestAPIEndpoints(unittest.TestCase):
     # 6. URL Scraper & Auto-Router (POST /analyze-url)
     # -----------------------------------------------------------------------
     def test_analyze_url_network_error(self):
-        with patch("main.fetch_public_url", side_effect=Exception("Connection refused")):
+        with patch("truthshield.routes.urls.fetch_public_url", side_effect=Exception("Connection refused")):
             response = self.client.post("/analyze-url", json={"url": "http://invalid-fake-domain.com"})
             self.assertEqual(response.status_code, 400)
             self.assertIn("Failed to fetch URL", response.json()["detail"])
@@ -311,9 +347,9 @@ class TestAPIEndpoints(unittest.TestCase):
 
         ml_models["ai_image_detector"] = MagicMock(return_value=[{"label": "artificial", "score": 0.70}])
 
-        with patch("main.fetch_public_url", return_value=mock_resp):
+        with patch("truthshield.routes.urls.fetch_public_url", return_value=mock_resp):
             response = self.client.post("/analyze-url", json={"url": "https://example.com/photo.jpg"})
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
             self.assertEqual(data["modality"], "URL (Image)")
             self.assertEqual(data["prediction"], "Elevated synthetic signals")
@@ -325,12 +361,12 @@ class TestAPIEndpoints(unittest.TestCase):
         mock_resp.text = "<html><body></body></html>"
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("main.fetch_public_url", return_value=mock_resp):
+        with patch("truthshield.routes.urls.fetch_public_url", return_value=mock_resp):
             response = self.client.post("/analyze-url", json={"url": "https://example.com/empty-article"})
             self.assertEqual(response.status_code, 400)
             self.assertIn("Could not extract sufficient article text", response.json()["detail"])
 
-    @patch("main.verify_news_on_web")
+    @patch("truthshield.routes.claims.verify_news_on_web")
     def test_analyze_url_routes_to_text(self, mock_web):
         mock_web.return_value = {"corroborated": False, "match_count": 0, "sources": [], "query": "astronomers discover water on moon"}
         html_doc = """
@@ -350,7 +386,7 @@ class TestAPIEndpoints(unittest.TestCase):
         mock_clf = MagicMock(return_value=[{"label": "LABEL_1", "score": 0.85}])
         ml_models["text_classifier"] = mock_clf
 
-        with patch("main.fetch_public_url", return_value=mock_resp):
+        with patch("truthshield.routes.urls.fetch_public_url", return_value=mock_resp):
             response = self.client.post("/analyze-url", json={"url": "https://example.com/space-article"})
             self.assertEqual(response.status_code, 200)
             data = response.json()

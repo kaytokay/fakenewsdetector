@@ -174,9 +174,9 @@ if errorlevel 1 (
     echo Python pip is unavailable. Run: "%PYTHON_EXE%" -m ensurepip --upgrade
     exit /b 1
 )
-"%PYTHON_EXE%" -m pip install -r "%~dp0requirements.txt"
+"%PYTHON_EXE%" -m pip install -r "%~dp0requirements-lock.txt"
 if errorlevel 1 (
-    echo Library verification or installation failed. Check your internet connection and requirements.txt.
+    echo Library verification or installation failed. Check your internet connection and requirements-lock.txt.
     exit /b 1
 )
 exit /b 0
