@@ -7,7 +7,7 @@ from ..state import MAX_IMAGE_PIXELS, live_analytics, ml_models
 from ..schemas import TextInput
 from ..services.security import read_upload_limited
 from ..services.text import analyze_sentiment, text_fake_score, verify_news_on_web
-from ..services.vision import extract_fake_score
+from ..services.vision import extract_fake_score, whole_image_ai_score
 from ..services.telemetry import record_telemetry
 router = APIRouter()
 @router.post("/analyze-text")
@@ -101,8 +101,8 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
 async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     ocr = ml_models.get("ocr_reader")
     t_clf = ml_models.get("text_classifier")
-    img_clf = ml_models.get("ai_image_detector") or ml_models.get("deepfake_detector")
-    if not (ocr and t_clf and img_clf):
+    img_clf = ml_models.get("ai_image_detector")
+    if not (ocr and t_clf):
         raise HTTPException(status_code=500, detail="Models still loading.")
 
     contents = await read_upload_limited(file)
@@ -132,10 +132,25 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     t_pred = t_res[0]
     raw_text_fake = text_fake_score(t_pred, t_clf)
 
-    # D — Visual signal is reported separately: a whole-page screenshot is not a suitable
-    # input for an AI-generated-image classifier, and that score must not decide claim truth.
-    i_preds = await run_in_threadpool(img_clf, image)
-    raw_visual_fake = extract_fake_score(i_preds)
+    # D — Use a general whole-image detector first. Face-forgery models are
+    # incompatible with a screenshot and must never be used as a substitute.
+    raw_visual_fake = None
+    visual_model = None
+    try:
+        raw_visual_fake = await run_in_threadpool(whole_image_ai_score, image)
+        if raw_visual_fake is not None:
+            visual_model = "Calibrated whole-image detector"
+    except Exception:
+        # A failed primary detector may still have the compatible legacy fallback.
+        raw_visual_fake = None
+    if raw_visual_fake is None and img_clf:
+        try:
+            i_preds = await run_in_threadpool(img_clf, image)
+            raw_visual_fake = extract_fake_score(i_preds)
+            visual_model = "Legacy whole-image detector"
+        except Exception:
+            # Keep OCR claim screening available while clearly marking this signal unavailable.
+            raw_visual_fake = None
 
     # E — News claim screening is based on OCR text; keep screenshot appearance separate.
     text_fake = round(raw_text_fake, 2)
@@ -148,9 +163,10 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
 
     breakdown = {
         "OCR Text Classifier Pattern Score (%)": text_fake,
-        "Whole Screenshot Image Pattern Score (%)": raw_visual_fake,
         "Subjectivity Index (%)": subjectivity,
     }
+    if raw_visual_fake is not None:
+        breakdown["Whole Screenshot Image Pattern Score (%)"] = raw_visual_fake
     record_telemetry("Screenshot", is_fake, conf_pct, sentiment, breakdown)
 
     metadata = {
@@ -158,7 +174,8 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
         "Related_Coverage": f"{web_check['match_count']} related result(s)" if web_check["corroborated"] else "No related results found",
         "Search_Query": web_check["query"],
         "Sentiment": f"{sentiment} ({polarity})",
-        "Whole_Screenshot_AI_Image_Signal": f"{raw_visual_fake}% (not used for claim verdict)",
+        "Whole_Screenshot_AI_Image_Signal": f"{raw_visual_fake}% (not used for claim verdict)" if raw_visual_fake is not None else "Unavailable",
+        "Whole_Screenshot_AI_Image_Model": visual_model or "Unavailable",
     }
 
     related_count = web_check.get("match_count", 0)
@@ -177,7 +194,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
         "summary": related_summary,
         "evidence": [
             {"label": "OCR text classifier signal", "detail": f"{text_fake}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
-            {"label": "Whole-page image classifier", "detail": f"{raw_visual_fake}% image-pattern score. It evaluates the complete screenshot, not a separately cropped news photo, so it does not affect the result."},
+            {"label": "Whole-page image classifier", "detail": f"{raw_visual_fake}% image-pattern score from the {visual_model}. It evaluates the complete screenshot and does not affect the claim result." if raw_visual_fake is not None else "Unavailable. No compatible whole-image model produced a signal; face-forgery models are not used for screenshots."},
             {"label": "Related reporting", "detail": related_summary},
             {"label": "What this means", "detail": "Matching key terms identifies relevant coverage that may support or challenge the claim. Open the sources and compare the details before drawing a conclusion."},
         ],

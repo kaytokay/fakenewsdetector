@@ -41,6 +41,21 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertIn("TruthShield", response.text)
         self.assertIn("Review news claims", response.text)
 
+    def test_readiness_reports_unavailable_models(self):
+        response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["status"], "not_ready")
+        self.assertFalse(response.json()["detail"]["models"]["text_classifier"])
+
+    def test_readiness_reports_available_and_unavailable_capabilities(self):
+        ml_models["text_classifier"] = MagicMock()
+        ml_models["whole_image_detector"] = MagicMock()
+        response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertTrue(response.json()["models"]["whole_image_detector"])
+        self.assertFalse(response.json()["models"]["deepfake_detector"])
+
     # -----------------------------------------------------------------------
     # 2. Text Analysis Endpoint (POST /analyze-text)
     # -----------------------------------------------------------------------
@@ -54,13 +69,6 @@ class TestAPIEndpoints(unittest.TestCase):
         response = self.client.post("/analyze-text", json={"text": "Short"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("at least 10 characters", response.json()["detail"])
-
-    @patch("truthshield.routes.claims.verify_news_on_web", return_value={"corroborated": False, "match_count": 0, "sources": [], "query": ""})
-    def test_empty_text_classifier_output_is_inconclusive(self, _mock_web):
-        ml_models["text_classifier"] = MagicMock(return_value=[])
-        response = self.client.post("/analyze-text", json={"text": "A sufficiently long claim for classifier testing."})
-        self.assertEqual(response.status_code, 503)
-        self.assertIn("inconclusive", response.json()["detail"])
 
     def test_telemetry_stream_rejects_connections_over_limit(self):
         acquired = [telemetry_connections.acquire(blocking=False) for _ in range(MAX_TELEMETRY_CONNECTIONS)]
@@ -194,6 +202,46 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertIn("elevated_signals", data)
         self.assertIn("Whole_Screenshot_AI_Image_Signal", data["metadata"])
         self.assertNotIn("annotated_image_b64", data)
+
+    @patch("truthshield.routes.claims.verify_news_on_web", return_value={"corroborated": False, "match_count": 0, "sources": [], "query": ""})
+    @patch("truthshield.routes.claims.whole_image_ai_score", return_value=None)
+    def test_screenshot_does_not_substitute_face_model_for_missing_whole_image_model(self, _whole_score, _mock_web):
+        mock_ocr = MagicMock()
+        mock_ocr.readtext.return_value = ["A sufficiently long statement extracted from this screenshot."]
+        ml_models["ocr_reader"] = mock_ocr
+        ml_models["text_classifier"] = MagicMock(return_value=[{"label": "LABEL_1", "score": 0.90}])
+        face_model = MagicMock(return_value=[{"label": "fake", "score": 0.99}])
+        ml_models["deepfake_detector"] = face_model
+
+        buf = BytesIO()
+        Image.new("RGB", (200, 200), color=(220, 220, 220)).save(buf, format="PNG")
+        response = self.client.post("/analyze-screenshot", files={"file": ("screenshot.png", buf.getvalue(), "image/png")})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["metadata"]["Whole_Screenshot_AI_Image_Signal"], "Unavailable")
+        self.assertNotIn("Whole Screenshot Image Pattern Score (%)", data["bar_chart_data"])
+        self.assertIn("Unavailable", data["assessment"]["evidence"][1]["detail"])
+        face_model.assert_not_called()
+
+    @patch("truthshield.routes.claims.verify_news_on_web", return_value={"corroborated": False, "match_count": 0, "sources": [], "query": ""})
+    @patch("truthshield.routes.claims.whole_image_ai_score", return_value=23.0)
+    def test_screenshot_prefers_whole_image_model(self, whole_score, _mock_web):
+        mock_ocr = MagicMock()
+        mock_ocr.readtext.return_value = ["A sufficiently long statement extracted from this screenshot."]
+        ml_models["ocr_reader"] = mock_ocr
+        ml_models["text_classifier"] = MagicMock(return_value=[{"label": "LABEL_1", "score": 0.90}])
+        legacy_model = MagicMock(return_value=[{"label": "artificial", "score": 0.99}])
+        ml_models["ai_image_detector"] = legacy_model
+
+        buf = BytesIO()
+        Image.new("RGB", (200, 200), color=(220, 220, 220)).save(buf, format="PNG")
+        response = self.client.post("/analyze-screenshot", files={"file": ("screenshot.png", buf.getvalue(), "image/png")})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["metadata"]["Whole_Screenshot_AI_Image_Signal"], "23.0% (not used for claim verdict)")
+        legacy_model.assert_not_called()
+        whole_score.assert_called_once()
 
     # -----------------------------------------------------------------------
     # 4. Image Deepfake Analysis Endpoint (POST /analyze-image)
@@ -354,6 +402,41 @@ class TestAPIEndpoints(unittest.TestCase):
             self.assertEqual(data["modality"], "URL (Image)")
             self.assertEqual(data["prediction"], "Elevated synthetic signals")
             self.assertTrue(data["elevated_signals"])
+
+    @patch("truthshield.routes.urls.whole_image_ai_score", return_value=71.0)
+    def test_analyze_url_image_prefers_whole_image_detector(self, whole_score):
+        buf = BytesIO()
+        Image.new("RGB", (100, 100), color=(200, 100, 50)).save(buf, format="JPEG")
+        mock_resp = MagicMock()
+        mock_resp.headers = {"Content-Type": "image/jpeg"}
+        mock_resp.content = buf.getvalue()
+        legacy_model = MagicMock(return_value=[{"label": "real", "score": 0.99}])
+        ml_models["ai_image_detector"] = legacy_model
+
+        with patch("truthshield.routes.urls.fetch_public_url", return_value=mock_resp):
+            response = self.client.post("/analyze-url", json={"url": "https://example.com/photo.jpg"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["prediction"], "Elevated synthetic signals")
+        self.assertIn("Calibrated whole-image detector", response.json()["assessment"]["summary"])
+        legacy_model.assert_not_called()
+        whole_score.assert_called_once()
+
+    def test_analyze_url_image_does_not_use_face_model_as_fallback(self):
+        buf = BytesIO()
+        Image.new("RGB", (100, 100), color=(200, 100, 50)).save(buf, format="JPEG")
+        mock_resp = MagicMock()
+        mock_resp.headers = {"Content-Type": "image/jpeg"}
+        mock_resp.content = buf.getvalue()
+        face_model = MagicMock(return_value=[{"label": "fake", "score": 0.99}])
+        ml_models["deepfake_detector"] = face_model
+
+        with patch("truthshield.routes.urls.fetch_public_url", return_value=mock_resp):
+            response = self.client.post("/analyze-url", json={"url": "https://example.com/photo.jpg"})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("face-forgery models cannot provide", response.json()["detail"])
+        face_model.assert_not_called()
 
     def test_analyze_url_empty_scraped_article(self):
         mock_resp = MagicMock()

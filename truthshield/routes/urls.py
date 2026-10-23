@@ -10,7 +10,7 @@ from ..state import MAX_IMAGE_PIXELS, live_analytics, ml_models
 from ..schemas import TextInput, URLInput
 from ..services.security import fetch_public_url
 from ..services.telemetry import record_telemetry
-from ..services.vision import extract_exif_metadata, extract_fake_score, generate_tampering_mask_and_bbox
+from ..services.vision import extract_exif_metadata, extract_fake_score, generate_tampering_mask_and_bbox, whole_image_ai_score
 from .claims import analyze_text_endpoint
 router = APIRouter()
 @router.post("/analyze-url")
@@ -41,12 +41,26 @@ async def analyze_url_endpoint(payload: URLInput):
         except Exception:
             raise HTTPException(status_code=400, detail="URL did not return a valid readable image.")
 
-        clf = ml_models.get("ai_image_detector")
-        if not clf:
-            raise HTTPException(status_code=503, detail="Whole-image AI-generation detector is unavailable; face-forgery models are not compatible with this input.")
-
-        preds = await run_in_threadpool(clf, rgb)
-        vit_fake = extract_fake_score(preds)
+        # Prefer the calibrated whole-image model. The older general-image model
+        # is a compatible fallback; face-forgery classifiers are never substituted.
+        vit_fake = None
+        model_name = None
+        try:
+            vit_fake = await run_in_threadpool(whole_image_ai_score, rgb)
+            if vit_fake is not None:
+                model_name = "Calibrated whole-image detector"
+        except Exception:
+            vit_fake = None
+        legacy_clf = ml_models.get("ai_image_detector")
+        if vit_fake is None and legacy_clf:
+            try:
+                preds = await run_in_threadpool(legacy_clf, rgb)
+                vit_fake = extract_fake_score(preds)
+                model_name = "Legacy whole-image detector"
+            except Exception:
+                vit_fake = None
+        if vit_fake is None:
+            raise HTTPException(status_code=503, detail="No compatible whole-image detector is available for this image; face-forgery models cannot provide this signal.")
         is_fake = vit_fake >= 50.0
         conf_pct = vit_fake if is_fake else round(100 - vit_fake, 2)
         breakdown = {
@@ -62,6 +76,7 @@ async def analyze_url_endpoint(payload: URLInput):
             "confidence_pct": conf_pct,
             "preview": payload.url,
             "metadata": extract_exif_metadata(raw)[0],
+            "assessment": {"status": "SCREENING SIGNAL", "summary": f"{model_name} produced a screening score; this does not establish authenticity."},
             "annotated_image_b64": ann_b64,
             "tampering_mask_b64": mask_b64,
             "bar_chart_data": breakdown,
