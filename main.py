@@ -177,7 +177,10 @@ async def health_ready():
 @app.get("/")
 async def serve_frontend():
     """Serve the dashboard on the same origin as the API."""
-    return FileResponse(os.path.join(os.path.dirname(__file__), "index.html"))
+    return FileResponse(
+        os.path.join(os.path.dirname(__file__), "index.html"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +617,7 @@ def verify_news_on_web(text: str) -> dict:
     query_tokens = important_tokens[:5]
     query = ' '.join(query_tokens).strip()
     if not query:
-        return {"corroborated": False, "direct_match": False, "match_count": 0, "sources": [], "query": ""}
+        return {"corroborated": False, "direct_match": False, "trusted_headline_match": False, "trusted_source_match_count": 0, "authenticity_score_pct": 0, "match_count": 0, "sources": [], "query": ""}
 
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -630,6 +633,13 @@ def verify_news_on_web(text: str) -> dict:
                 'hoax', 'debunked', 'fake', 'false claim', 'fact check', 'conspiracy',
                 'unfounded', 'myth', 'rumour', 'rumor', 'parody', 'satire', 'alleged',
                 'allegedly', 'speculation', 'mystery', 'possible', 'ufo'
+            }
+            trusted_publishers = {
+                "reuters", "associated press", "ap news", "bbc", "bbc news", "afp",
+                "al jazeera", "the guardian", "new york times", "the new york times",
+                "the washington post", "washington post", "cnn", "npr", "pbs",
+                "the times of india", "times of india", "ndtv", "livemint",
+                "the hindu", "indian express", "the indian express",
             }
             valid_sources = []
             input_tokens = {
@@ -657,7 +667,9 @@ def verify_news_on_web(text: str) -> dict:
                     len(headline_tokens & input_tokens) / len(headline_tokens)
                     if len(headline_tokens) >= 4 else 0.0
                 )
-                headline_match = title_overlap >= 0.75
+                headline_match = title_overlap >= 0.60
+                normalized_source = re.sub(r"[^a-z0-9]+", " ", source_name.lower()).strip()
+                trusted_source = normalized_source in trusted_publishers
 
                 # Match key entity tokens
                 matches = sum(
@@ -677,20 +689,31 @@ def verify_news_on_web(text: str) -> dict:
                         "is_fact_check": is_debunk,
                         "headline_match": headline_match,
                         "headline_match_pct": round(title_overlap * 100, 1),
+                        "trusted_source": trusted_source,
                     })
 
             is_corroborated = len(valid_sources) >= 1
+            trusted_headline_sources = {
+                source["source"].lower()
+                for source in valid_sources
+                if source["trusted_source"] and source["headline_match"]
+            }
+            trusted_match_count = len(trusted_headline_sources)
+            # This is a publisher-match evidence indicator, not a calibrated truth probability.
+            authenticity_score = min(95, 75 + 10 * (trusted_match_count - 1)) if trusted_match_count else 0
             return {
                 "corroborated": is_corroborated,
-                "direct_match": any(source["headline_match"] for source in valid_sources),
-                "authenticity_score_pct": max((source["headline_match_pct"] for source in valid_sources if source["headline_match"]), default=None),
+                "direct_match": trusted_match_count > 0,
+                "trusted_headline_match": trusted_match_count > 0,
+                "trusted_source_match_count": trusted_match_count,
+                "authenticity_score_pct": authenticity_score,
                 "match_count": len(valid_sources),
                 "sources": valid_sources[:4],
                 "query": query
             }
     except Exception as e:
         print(f"[WARN] Live news search notice: {e}")
-        return {"corroborated": False, "direct_match": False, "match_count": 0, "sources": [], "query": query}
+        return {"corroborated": False, "direct_match": False, "trusted_headline_match": False, "trusted_source_match_count": 0, "authenticity_score_pct": 0, "match_count": 0, "sources": [], "query": query}
 def compute_image_forensics(image: Image.Image) -> dict:
     """
     Real Pixel-Level Deep Forensic Analysis (Paper 1 & Paper 4):
@@ -920,7 +943,7 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
     # Related coverage is useful context, but a search result cannot verify a claim.
     fake_prob = raw_fake_prob
     is_fake = fake_prob >= 50.0
-    verdict = "Elevated misinformation signals" if is_fake else ("Classifier signal below screening threshold; publisher match found" if direct_match else "Unverified — no direct publisher headline match found")
+    verdict = "Elevated misinformation signals" if is_fake else ("Trusted publisher headline match found" if direct_match else "No trusted publisher headline match found")
     conf_pct = fake_prob if is_fake else round(100 - fake_prob, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(clean)
@@ -930,12 +953,13 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
         "Subjectivity / Bias (%)": subjectivity,
     }
     assessment = {
-        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("PUBLISHER_MATCH_CLASSIFIER_LOW" if direct_match else "INCONCLUSIVE"),
-        "authenticity_score_pct": web_check.get("authenticity_score_pct"),
-        "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet; it does not verify every claim in the article." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity or whether its claims are true.",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("TRUSTED_PUBLISHER_MATCH" if direct_match else "NO_TRUSTED_PUBLISHER_MATCH"),
+        "authenticity_score_pct": web_check.get("authenticity_score_pct", 0),
+        "trusted_source_match_count": web_check.get("trusted_source_match_count", 0),
+        "summary": f"A headline match was found at {web_check.get('trusted_source_match_count', 0)} trusted publisher(s). The percentage reflects publisher/headline match evidence only; it does not verify every claim." if direct_match else "No headline match was found at a configured trusted publisher. The 0% indicator means no trusted match evidence was found; it does not mean the article is false.",
         "evidence": [
             {"label": "Text classifier signal", "detail": f"{fake_prob}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
-            {"label": "Article authenticity", "detail": "A close match for the headline was found in the listed publisher references." if direct_match else "No direct headline match was found; authenticity remains unverified."},
+            {"label": "Publisher authenticity indicator", "detail": f"{web_check.get('authenticity_score_pct', 0)}% based on headline matches at {web_check.get('trusted_source_match_count', 0)} configured trusted publisher(s). This is a source-match indicator, not a truth probability."},
             {"label": "Claim accuracy", "detail": "A matching article does not confirm every factual claim it contains."},
         ],
     }
@@ -1008,7 +1032,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     text_fake = round(raw_text_fake, 2)
     combined_fake = text_fake
     is_fake = text_fake >= 50.0
-    verdict = "Elevated misinformation signals" if is_fake else ("Classifier signal below screening threshold; publisher match found" if direct_match else "Unverified — no direct publisher headline match found")
+    verdict = "Elevated misinformation signals" if is_fake else ("Trusted publisher headline match found" if direct_match else "No trusted publisher headline match found")
     conf_pct = combined_fake if is_fake else round(100.0 - combined_fake, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(text)
@@ -1029,13 +1053,14 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     }
 
     assessment = {
-        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("PUBLISHER_MATCH_CLASSIFIER_LOW" if direct_match else "INCONCLUSIVE"),
-        "authenticity_score_pct": web_check.get("authenticity_score_pct"),
-        "summary": f"A close headline match was found from {', '.join(dict.fromkeys(source.get('source', 'Publisher') for source in web_check.get('sources', []) if source.get('headline_match')))}. This supports that the article was published by that outlet. It does not prove the screenshot is unaltered, the photo is genuine, or every claim is accurate." if direct_match else "No close publisher headline match was found. Related references alone cannot establish article authenticity; the whole-page image score cannot determine whether its embedded photo is AI-generated.",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("TRUSTED_PUBLISHER_MATCH" if direct_match else "NO_TRUSTED_PUBLISHER_MATCH"),
+        "authenticity_score_pct": web_check.get("authenticity_score_pct", 0),
+        "trusted_source_match_count": web_check.get("trusted_source_match_count", 0),
+        "summary": f"A headline match was found at {web_check.get('trusted_source_match_count', 0)} trusted publisher(s). This supports publication by those outlets, but does not prove the screenshot is unaltered, the photo is genuine, or every claim is accurate." if direct_match else "No headline match was found at a configured trusted publisher. The 0% indicator means no trusted match evidence was found; it does not mean the article is false or that the screenshot is altered.",
         "evidence": [
             {"label": "OCR text classifier signal", "detail": f"{text_fake}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
             {"label": "Whole-page image classifier", "detail": f"{raw_visual_fake}% image-pattern score. It evaluates the complete screenshot, not a separately cropped news photo, so it does not affect the result."},
-            {"label": "Article authenticity", "detail": "A close match for the article headline was found in the listed publisher references." if direct_match else "No direct headline match was found; authenticity remains unverified."},
+            {"label": "Publisher authenticity indicator", "detail": f"{web_check.get('authenticity_score_pct', 0)}% based on headline matches at {web_check.get('trusted_source_match_count', 0)} configured trusted publisher(s). This is a source-match indicator, not a truth probability."},
         ],
     }
 

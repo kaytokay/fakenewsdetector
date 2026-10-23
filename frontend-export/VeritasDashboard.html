@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Veritas Lens — Forensic Verification Dashboard</title>
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Tailwind Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            obsidian: {
+              950: '#07090b',
+              900: '#0b0f12',
+              850: '#0f1418',
+              800: '#141a20',
+              700: '#1c242c',
+              600: '#27333e',
+              500: '#384857',
+            },
+            mint: {
+              400: '#2ee6b3',
+              500: '#12c99a',
+              600: '#0ea47c',
+              900: '#06382a',
+              950: '#032018',
+            },
+            indigoAccent: {
+              300: '#a5b4fc',
+              400: '#818cf8',
+              500: '#6366f1',
+              900: '#1e1b4b',
+            },
+            skyAccent: {
+              300: '#7dd3fc',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              900: '#082f49',
+            },
+            roseAccent: {
+              300: '#fda4af',
+              400: '#fb7185',
+              500: '#f43f5e',
+              900: '#4c0519',
+            },
+            amberAccent: {
+              300: '#fcd34d',
+              400: '#fbbf24',
+              500: '#f59e0b',
+              900: '#451a03',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Focus visible ring standards (WCAG AA 44px+) */
+    *:focus-visible {
+      outline: 2px solid #2ee6b3;
+      outline-offset: 2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f12;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1c242c;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #27333e;
+    }
+  </style>
+</head>
+<body class="bg-[#07090b] text-slate-100 font-sans antialiased selection:bg-mint-500/20 selection:text-mint-400 min-h-screen flex flex-col md:flex-row">
+
+  <!-- ========================================================================= -->
+  <!-- ACCESSIBLE LEFT NAVIGATION (DESKTOP & TABLET COLLAPSED STATE) -->
+  <!-- ========================================================================= -->
+  <aside id="sidebar" aria-label="Main Navigation" class="hidden md:flex flex-col w-64 lg:w-72 bg-obsidian-900 border-r border-obsidian-700/60 shrink-0 sticky top-0 h-screen z-30 transition-all duration-200">
+    <!-- Brand Header -->
+    <div class="h-20 flex items-center px-6 border-b border-obsidian-700/60 justify-between">
+      <a href="#main-content" class="flex items-center gap-3 group focus:rounded-lg">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-mint-500 to-mint-600 flex items-center justify-center text-obsidian-950 shadow-lg shadow-mint-500/10 font-bold">
+          <svg class="w-6 h-6 text-obsidian-950" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            Veritas Lens
+            <span class="inline-block w-2 h-2 rounded-full bg-mint-400 animate-pulse" title="System Operational" aria-hidden="true"></span>
+          </span>
+          <span class="text-xs font-mono text-slate-400 tracking-wider">v4.8 • FORENSIC AI</span>
+        </div>
+      </a>
+      <span class="sr-only">Forensic Intelligence & Verification Dashboard</span>
+    </div>
+
+    <!-- Nav Items -->
+    <nav class="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto" aria-label="Application Sections">
+      <div class="px-3 pb-2 text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold">Workspace</div>
+      
+      <!-- Nav Link: Overview (Active) -->
+      <a href="#overview" aria-current="page" class="flex items-center gap-3.5 px-3.5 py-3 rounded-xl bg-mint-500/10 text-mint-400 font-semibold text-sm border border-mint-500/25 transition-colors">
+        <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        <span>Overview</span>
+        <span class="ml-auto text-[11px] font-mono bg-mint-500/20 text-mint-300 px-2 py-0.5 rounded-full">Live</span>
+      </a>
+
+      <!-- Nav Link: Verify Composer -->
+      <a href="#composer" class="flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-obsidian-800 font-medium text-sm border border-transparent transition-colors">
+        <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+        </svg>
+        <span>Verify Claim</span>
+      </a>
+
+      <!-- Nav Link: History Ledger -->
+      <a href="#recent-checks" class="flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-obsidian-800 font-medium text-sm border border-transparent transition-colors">
+        <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>History & Logs</span>
+        <span class="ml-auto text-xs font-mono text-slate-400">18</span>
+      </a>
+
+      <!-- Nav Link: Sources & Trust Index -->
+      <a href="#sources" class="flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-obsidian-800 font-medium text-sm border border-transparent transition-colors">
+        <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        </svg>
+        <span>Sources & Registry</span>
+      </a>
+
+      <!-- Nav Link: Misinformation Trends -->
+      <a href="#trends" class="flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-obsidian-800 font-medium text-sm border border-transparent transition-colors">
+        <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+        <span>Radar & Trends</span>
+        <span class="ml-auto w-2 h-2 rounded-full bg-roseAccent-500" title="New anomalies flagged" aria-hidden="true"></span>
+      </a>
+
+      <div class="pt-6 px-3 pb-2 text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold">Integrity Protocol</div>
+      <div class="p-3.5 rounded-xl bg-obsidian-850 border border-obsidian-700/60 text-xs space-y-2">
+        <div class="flex items-center justify-between text-slate-300">
+          <span class="font-medium">Consensus Nodes</span>
+          <span class="font-mono text-mint-400 font-bold">12 / 12 Active</span>
+        </div>
+        <div class="w-full bg-obsidian-700 h-1.5 rounded-full overflow-hidden">
+          <div class="bg-mint-500 h-full w-full rounded-full"></div>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">Cross-referencing Snopes, PolitiFact, WHO, and Reuters registries in realtime.</p>
+      </div>
+    </nav>
+
+    <!-- User Profile & Session Controls Footer -->
+    <div class="p-4 border-t border-obsidian-700/60 bg-obsidian-950/60">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-xl bg-obsidian-700 border border-obsidian-600 flex items-center justify-center font-bold text-slate-200 text-sm shrink-0">
+            SJ
+          </div>
+          <div class="truncate">
+            <p class="text-sm font-semibold text-white truncate">Sarah Jenkins</p>
+            <p class="text-xs text-slate-400 font-mono truncate">Lead Fact Auditor</p>
+          </div>
+        </div>
+        <button type="button" aria-label="Account Settings and Sign Out" class="p-2 text-slate-400 hover:text-white hover:bg-obsidian-800 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================================================================= -->
+  <!-- MAIN APPLICATION SURFACE -->
+  <!-- ========================================================================= -->
+  <div class="flex-1 flex flex-col min-w-0 pb-20 md:pb-8">
+
+    <!-- Top Navigation Bar -->
+    <header class="h-20 bg-obsidian-900/90 backdrop-blur border-b border-obsidian-700/60 sticky top-0 z-20 px-4 sm:px-8 flex items-center justify-between gap-4">
+      <!-- Mobile / Tablet Navigation Toggle & Page Title -->
+      <div class="flex items-center gap-3">
+        <!-- Mobile Menu Trigger -->
+        <button type="button" id="mobile-menu-btn" aria-label="Toggle Mobile Menu" aria-expanded="false" class="md:hidden p-2.5 rounded-xl text-slate-300 hover:text-white bg-obsidian-800 border border-obsidian-700 min-w-[44px] min-h-[44px] flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            Verification Console
+            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-obsidian-800 text-slate-300 border border-obsidian-700">
+              DESKTOP VIEWPORT
+            </span>
+          </h1>
+          <p class="text-xs text-slate-400 hidden sm:block">Empirical multi-modal disinformation forensics</p>
+        </div>
+      </div>
+
+      <!-- Center Global Search Input -->
+      <div class="flex-1 max-w-md mx-2 hidden lg:block">
+        <label for="global-search" class="sr-only">Search verified claims, URLs, or news outlets</label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <input 
+            type="search" 
+            id="global-search" 
+            placeholder="Search verified claims, domain hashes, or dossiers..." 
+            class="w-full bg-obsidian-850 border border-obsidian-700 rounded-xl pl-10 pr-12 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-400 focus:border-mint-500 focus:bg-obsidian-800 transition-all"
+          />
+          <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+            <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-obsidian-700 rounded border border-obsidian-600">⌘K</kbd>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Header Actions (Help, Notification, Theme) -->
+      <div class="flex items-center gap-2">
+        <button type="button" aria-label="Audit Documentation & Methodology" class="p-2.5 text-slate-300 hover:text-white hover:bg-obsidian-800 rounded-xl border border-obsidian-700/60 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors" title="Forensic Methodology">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
+
+        <!-- Theme Toggle Notice (Accessible Indicator) -->
+        <button type="button" id="theme-toggle" aria-label="Theme mode toggle (Calm Dark active)" class="px-3 py-2 text-xs font-mono text-slate-300 bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-700 rounded-xl min-w-[44px] min-h-[44px] flex items-center gap-2 transition-colors">
+          <svg class="w-4 h-4 text-amberAccent-400" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+          </svg>
+          <span class="hidden xl:inline">Obsidian Dark</span>
+        </button>
+
+        <a href="#composer" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-mint-500 hover:bg-mint-400 text-obsidian-950 font-bold text-xs sm:text-sm tracking-wide shadow-md shadow-mint-500/10 min-h-[44px] transition-all">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>New Audit</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Mobile Slide-out Menu Panel (Responsive Navigation) -->
+    <div id="mobile-nav-panel" class="hidden md:hidden bg-obsidian-900 border-b border-obsidian-700 p-4 space-y-2">
+      <a href="#overview" class="block px-4 py-3 rounded-xl bg-mint-500/10 text-mint-400 font-semibold text-sm">Overview</a>
+      <a href="#composer" class="block px-4 py-3 rounded-xl text-slate-300 hover:bg-obsidian-800 font-medium text-sm">Verify Claim</a>
+      <a href="#recent-checks" class="block px-4 py-3 rounded-xl text-slate-300 hover:bg-obsidian-800 font-medium text-sm">History & Logs</a>
+      <a href="#sources" class="block px-4 py-3 rounded-xl text-slate-300 hover:bg-obsidian-800 font-medium text-sm">Sources & Registry</a>
+      <a href="#trends" class="block px-4 py-3 rounded-xl text-slate-300 hover:bg-obsidian-800 font-medium text-sm">Radar & Trends</a>
+    </div>
+
+    <!-- MAIN SCROLLABLE CONTENT CANVAS -->
+    <main id="main-content" class="flex-1 px-4 sm:px-8 py-8 max-w-[1440px] w-full mx-auto space-y-8 focus:outline-none" tabindex="-1">
+
+      <!-- ========================================================================= -->
+      <!-- 1. WELCOME & MODEL ESTIMATE NOTICE -->
+      <!-- ========================================================================= -->
+      <section aria-labelledby="welcome-heading" class="space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 id="welcome-heading" class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Welcome back, Sarah
+            </h2>
+            <p class="text-sm sm:text-base text-slate-300 mt-1 max-w-3xl leading-relaxed">
+              Verify claims, cross-reference journalistic wires, and dissect synthetic audiovisual artifacts in real-time.
+            </p>
+          </div>
+          <!-- Realtime SLA Badge -->
+          <div class="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-obsidian-900 border border-obsidian-700/80 text-xs font-mono text-slate-300 shrink-0 self-start sm:self-auto">
+            <span class="w-2.5 h-2.5 rounded-full bg-mint-400 animate-ping" aria-hidden="true"></span>
+            <span>99.4% Latency SLA • 0.38s Scan Avg</span>
+          </div>
+        </div>
+
+        <!-- Mandatory Model Estimate & Uncertainty Caveat Banner -->
+        <div role="region" aria-label="Forensic Uncertainty Disclosure" class="p-4 rounded-xl bg-obsidian-850 border-l-4 border-l-skyAccent-400 border border-obsidian-700/60 flex items-start gap-3.5">
+          <div class="p-1 rounded-lg bg-skyAccent-900/40 text-skyAccent-300 shrink-0 mt-0.5" aria-hidden="true">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <span class="font-semibold text-white">Advisory on Probabilistic Forensics:</span>
+            All credibility indices, synthetic text metrics, and manipulation scores presented are statistical model estimates. Results provide investigative triage guidance and should be combined with human editorial judgment and primary-source corroboration before publishing conclusions.
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- 2. PROMINENT VERIFICATION COMPOSER (PRIMARY HERO ACTION) -->
+      <!-- ========================================================================= -->
+      <section id="composer" aria-labelledby="composer-heading" class="bg-obsidian-900 rounded-2xl border border-obsidian-700/70 shadow-2xl p-5 sm:p-7 relative overflow-hidden">
+        <!-- Subtle ambient radial indicator -->
+        <div class="absolute -top-24 -right-24 w-96 h-96 bg-mint-500/5 rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
+
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-obsidian-800">
+          <div>
+            <h3 id="composer-heading" class="text-lg sm:text-xl font-bold text-white flex items-center gap-2.5">
+              <span>Forensic Verification Composer</span>
+              <span class="text-xs font-mono font-medium px-2.5 py-0.5 rounded-full bg-mint-500/15 text-mint-400 border border-mint-500/30">Primary Action</span>
+            </h3>
+            <p class="text-xs sm:text-sm text-slate-400 mt-0.5">Select a media modality to begin automated heuristic ingestion</p>
+          </div>
+          <!-- Mode status indicator -->
+          <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-mint-400"></span>
+            <span>Heuristic Engine: Armed (Multi-Tier)</span>
+          </div>
+        </div>
+
+        <!-- Accessible Modality Tabs -->
+        <div class="mt-6" role="tablist" aria-label="Verification Media Types">
+          <div class="flex flex-wrap items-center gap-2 border-b border-obsidian-800 pb-3">
+            <!-- Tab 1: Text (Active / Selected) -->
+            <button 
+              type="button" 
+              role="tab" 
+              aria-selected="true" 
+              aria-controls="panel-text" 
+              id="tab-text" 
+              class="tab-btn px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 bg-indigoAccent-500/20 text-indigoAccent-300 border border-indigoAccent-400/40 shadow-sm min-h-[44px] transition-all"
+            >
+              <svg class="w-4 h-4 text-indigoAccent-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Article Text</span>
+              <span class="text-[10px] font-mono bg-indigoAccent-400/20 text-indigoAccent-200 px-1.5 py-0.5 rounded font-normal">NLP Focus</span>
+            </button>
+
+            <!-- Tab 2: URL -->
+            <button 
+              type="button" 
+              role="tab" 
+              aria-selected="false" 
+              aria-controls="panel-url" 
+              id="tab-url" 
+              class="tab-btn px-4 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 text-slate-400 hover:text-white hover:bg-obsidian-800 border border-transparent min-h-[44px] transition-all"
+            >
+              <svg class="w-4 h-4 text-skyAccent-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              <span>Web Article / URL</span>
+            </button>
+
+            <!-- Tab 3: Image -->
+            <button 
+              type="button" 
+              role="tab" 
+              aria-selected="false" 
+              aria-controls="panel-image" 
+              id="tab-image" 
+              class="tab-btn px-4 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 text-slate-400 hover:text-white hover:bg-obsidian-800 border border-transparent min-h-[44px] transition-all"
+            >
+              <svg class="w-4 h-4 text-roseAccent-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span>Image Forensic (ELA)</span>
+            </button>
+
+            <!-- Tab 4: Video -->
+            <button 
+              type="button" 
+              role="tab" 
+              aria-selected="false" 
+              aria-controls="panel-video" 
+              id="tab-video" 
+              class="tab-btn px-4 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 text-slate-400 hover:text-white hover:bg-obsidian-800 border border-transparent min-h-[44px] transition-all"
+            >
+              <svg class="w-4 h-4 text-roseAccent-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Video & Deepfake</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- TAB PANEL: ARTICLE TEXT (ACTIVE) -->
+        <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="mt-5 space-y-4">
+          <!-- Textarea container with accessible labeling & guidance -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs sm:text-sm">
+              <label for="claim-textarea" class="font-semibold text-slate-200 flex items-center gap-2">
+                <span>Claim statement or full article excerpt</span>
+                <span class="text-xs font-normal text-slate-400">(Enter paragraphs, quoted assertions, or social posts)</span>
+              </label>
+              <!-- Character guidance counter -->
+              <span id="char-guidance" class="font-mono text-xs text-slate-400" aria-live="polite">
+                218 / 3,000 characters (min. 40 recommended for semantic cross-indexing)
+              </span>
+            </div>
+
+            <!-- Controlled Textarea with realistic sample pre-filled for immediate review -->
+            <div class="relative rounded-xl overflow-hidden border border-obsidian-700 bg-obsidian-950 focus-within:border-mint-500 focus-within:ring-2 focus-within:ring-mint-500/20 transition-all">
+              <textarea 
+                id="claim-textarea" 
+                rows="4" 
+                class="w-full bg-transparent px-4 py-3.5 text-sm sm:text-base text-slate-100 placeholder-slate-500 resize-y focus:outline-none font-sans leading-relaxed"
+                placeholder="Paste news claim, social excerpt, or statement here to analyze against peer-reviewed registries..."
+              >Internal memo from Global Agro consortium claims newly developed synthetic fertilizer reduces groundwater nitrogen runoff by 98% within 48 hours of field application, bypassing standard regional drainage filtration mandates.</textarea>
+              
+              <!-- Fast Paste & Example Helper Footer inside composer -->
+              <div class="bg-obsidian-850 px-4 py-2 border-t border-obsidian-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2 text-slate-400">
+                  <span class="font-semibold text-slate-300">Quick paste presets:</span>
+                  <button type="button" class="preset-btn px-2 py-1 rounded bg-obsidian-700 hover:bg-obsidian-600 text-slate-300 min-h-[32px] text-xs transition-colors" data-claim="European Energy Grid regulators declare complete cessation of peak-hour wind farm curtailment starting November 15 due to offshore battery banks.">
+                    Grid Policy Claim
+                  </button>
+                  <button type="button" class="preset-btn px-2 py-1 rounded bg-obsidian-700 hover:bg-obsidian-600 text-slate-300 min-h-[32px] text-xs transition-colors" data-claim="Dr. Valerie Brooks announces peer-reviewed proof of zero-calorie enzymatic starch conversions in clinical trials at Zurich Bioscience.">
+                    Biotech Excerpt
+                  </button>
+                </div>
+                <button type="button" id="clear-btn" class="text-slate-400 hover:text-white px-2 py-1 rounded min-h-[32px] transition-colors">
+                  Clear Text
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Composer Actions Bar (Stack on mobile, row on tablet/desktop) -->
+          <div class="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+            <!-- Pipeline Heuristic Toggles -->
+            <div class="flex flex-wrap items-center gap-3 text-xs">
+              <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-obsidian-850 border border-obsidian-700 text-slate-300 cursor-pointer hover:bg-obsidian-800 min-h-[44px]">
+                <input type="checkbox" checked class="w-4 h-4 rounded text-mint-500 bg-obsidian-700 border-obsidian-600 focus:ring-mint-500">
+                <span class="font-medium">Deep Source Provenance</span>
+              </label>
+              <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-obsidian-850 border border-obsidian-700 text-slate-300 cursor-pointer hover:bg-obsidian-800 min-h-[44px]">
+                <input type="checkbox" checked class="w-4 h-4 rounded text-mint-500 bg-obsidian-700 border-obsidian-600 focus:ring-mint-500">
+                <span class="font-medium">LLM Perplexity & Cadence</span>
+              </label>
+              <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-obsidian-850 border border-obsidian-700 text-slate-300 cursor-pointer hover:bg-obsidian-800 min-h-[44px]">
+                <input type="checkbox" checked class="w-4 h-4 rounded text-mint-500 bg-obsidian-700 border-obsidian-600 focus:ring-mint-500">
+                <span class="font-medium">Wire Consensus Check</span>
+              </label>
+            </div>
+
+            <!-- Prominent High-Contrast Analyze Button (Min 44px height, high visual hierarchy) -->
+            <button 
+              type="button" 
+              id="analyze-cta" 
+              class="inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl bg-mint-500 hover:bg-mint-400 active:bg-mint-600 text-obsidian-950 font-extrabold text-sm sm:text-base tracking-wide shadow-xl shadow-mint-500/20 border border-mint-400 min-h-[48px] shrink-0 transition-all focus:ring-4 focus:ring-mint-500/30"
+            >
+              <svg class="w-5 h-5 text-obsidian-950" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span>Analyze Assertion</span>
+              <span class="text-xs font-mono bg-obsidian-950 text-mint-400 px-2 py-0.5 rounded font-semibold ml-1">⌘Enter</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- 3. DASHBOARD GRID: RECENT CHECKS + EVIDENCE SUMMARY + TRENDS -->
+      <!-- Responsive 2-column or 3-column layout on Desktop, Stacks gracefully on Mobile -->
+      <!-- ========================================================================= -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+        <!-- LEFT COLUMN: RECENT CHECKS LIST (7 COLS ON DESKTOP) -->
+        <section id="recent-checks" aria-labelledby="recent-checks-heading" class="lg:col-span-7 space-y-4">
+          <div class="flex items-center justify-between pb-1 border-b border-obsidian-800">
+            <div>
+              <h3 id="recent-checks-heading" class="text-lg font-bold text-white flex items-center gap-2">
+                <span>Recent Live Audits</span>
+                <span class="text-xs font-mono text-slate-400 font-normal">(18 Total in Ledger)</span>
+              </h3>
+              <p class="text-xs text-slate-400">Real-time status updates across audited dispatches</p>
+            </div>
+            <a href="#view-ledger" class="text-xs font-semibold text-mint-400 hover:text-mint-300 inline-flex items-center gap-1 min-h-[44px]">
+              <span>View Full Ledger</span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+
+          <!-- Checks List (Accessible table-like card feed with redundant status icons + text) -->
+          <div class="space-y-3.5" role="list" aria-label="Recent Audit Entries">
+
+            <!-- Check Item 1: Corroborated True -->
+            <article role="listitem" class="p-4 sm:p-5 rounded-2xl bg-obsidian-900 border border-obsidian-700/80 hover:border-obsidian-600 transition-all space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <!-- Redundant icon + high-contrast text badge (never color alone) -->
+                  <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-mint-950 text-mint-400 border border-mint-500/40">
+                    <svg class="w-3.5 h-3.5 text-mint-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Corroborated Fact (98%)</span>
+                  </span>
+                  <span class="text-xs font-mono text-slate-400">Wire Confirmed</span>
+                </div>
+                <time datetime="2025-02-23T14:32" class="text-xs font-mono text-slate-400">19m ago • Reuters Wire</time>
+              </div>
+
+              <div>
+                <h4 class="text-base font-semibold text-white leading-snug">
+                  WHO Guidelines on Novel Respiratory Patterns Revision
+                </h4>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                  Official Geneva press bulletin confirmed via cryptographic public signature. No synthetic cadence or altered quotes detected in the distributed release.
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between pt-2 border-t border-obsidian-800 text-xs text-slate-400 gap-2">
+                <span class="font-mono text-[11px] text-slate-400">Primary Ref: WHO.int / PubMed Central #8194</span>
+                <a href="#dossier-1" class="text-mint-400 hover:underline font-semibold inline-flex items-center gap-1 min-h-[32px]">
+                  <span>Open Audit Dossier</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </a>
+              </div>
+            </article>
+
+            <!-- Check Item 2: Fabricated Signal / Debunked False -->
+            <article role="listitem" class="p-4 sm:p-5 rounded-2xl bg-obsidian-900 border border-obsidian-700/80 hover:border-obsidian-600 transition-all space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-roseAccent-900/40 text-roseAccent-300 border border-roseAccent-500/40">
+                    <svg class="w-3.5 h-3.5 text-roseAccent-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    <span>Fabricated Signal (94% Risk)</span>
+                  </span>
+                  <span class="text-xs font-mono text-slate-400">Synthetic Artifacts</span>
+                </div>
+                <time datetime="2025-02-23T14:15" class="text-xs font-mono text-slate-400">42m ago • Social Video</time>
+              </div>
+
+              <div>
+                <h4 class="text-base font-semibold text-white leading-snug">
+                  Viral Solar Storm Grid Collapse Assertion
+                </h4>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                  NOAA space weather registries report normal geomagnetic indices. Video clip spliced from 2012 sci-fi film trailer with generated voiceover track.
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between pt-2 border-t border-obsidian-800 text-xs text-slate-400 gap-2">
+                <span class="font-mono text-[11px] text-slate-400">Disproved by: NOAA Space Telemetry & PolitiFact API</span>
+                <a href="#dossier-2" class="text-roseAccent-300 hover:underline font-semibold inline-flex items-center gap-1 min-h-[32px]">
+                  <span>View Forensic Trace</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </a>
+              </div>
+            </article>
+
+            <!-- Check Item 3: Missing Context / Misleading -->
+            <article role="listitem" class="p-4 sm:p-5 rounded-2xl bg-obsidian-900 border border-obsidian-700/80 hover:border-obsidian-600 transition-all space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amberAccent-900/40 text-amberAccent-300 border border-amberAccent-500/40">
+                    <svg class="w-3.5 h-3.5 text-amberAccent-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>Missing Context (52% Mixed)</span>
+                  </span>
+                  <span class="text-xs font-mono text-slate-400">Selective Omission</span>
+                </div>
+                <time datetime="2025-02-23T13:00" class="text-xs font-mono text-slate-400">1h 35m ago • Financial Column</time>
+              </div>
+
+              <div>
+                <h4 class="text-base font-semibold text-white leading-snug">
+                  Central Bank Immediate Cash Ban Assertion
+                </h4>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                  Speech transcript truncated: quote refers exclusively to wholesale cross-border settlement protocols between institutional treasuries, not consumer currency.
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between pt-2 border-t border-obsidian-800 text-xs text-slate-400 gap-2">
+                <span class="font-mono text-[11px] text-slate-400">Cross-indexed: Bloomberg Terminal & SEC Filings</span>
+                <a href="#dossier-3" class="text-amberAccent-300 hover:underline font-semibold inline-flex items-center gap-1 min-h-[32px]">
+                  <span>Compare Excerpts</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </a>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- RIGHT COLUMN: EVIDENCE SUMMARY & TRENDS RADAR (5 COLS ON DESKTOP) -->
+        <div class="lg:col-span-5 space-y-6">
+
+          <!-- PANEL: EVIDENCE SUMMARY & CONFIDENCE GAUGES -->
+          <section id="evidence-summary" aria-labelledby="evidence-heading" class="p-5 sm:p-6 rounded-2xl bg-obsidian-900 border border-obsidian-700/80 space-y-5">
+            <div class="flex items-center justify-between pb-3 border-b border-obsidian-800">
+              <div>
+                <h3 id="evidence-heading" class="text-base font-bold text-white flex items-center gap-2">
+                  <svg class="w-5 h-5 text-mint-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Evidence & Corroboration Panel</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">Triangulated signals for current active audit</p>
+              </div>
+              <span class="text-xs font-mono text-slate-400 bg-obsidian-800 px-2 py-1 rounded">ESTIMATE</span>
+            </div>
+
+            <!-- Primary Confidence Estimate Gauge (With Plain-Language Caveat) -->
+            <div class="p-4 rounded-xl bg-obsidian-950 border border-obsidian-800 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider font-mono">Consensus Confidence</span>
+                <span class="text-xl font-bold font-mono text-mint-400">89.4% <span class="text-xs font-normal text-slate-400">±1.2%</span></span>
+              </div>
+              <!-- Accessible Progress Meter -->
+              <div class="w-full bg-obsidian-800 h-2.5 rounded-full overflow-hidden" role="progressbar" aria-valuenow="89" aria-valuemin="0" aria-valuemax="100" aria-label="Consensus confidence estimate">
+                <div class="bg-gradient-to-r from-mint-500 to-mint-400 h-full rounded-full" style="width: 89.4%"></div>
+              </div>
+              <p class="text-[11px] text-slate-400 leading-normal">
+                *Estimated probability based on 12 institutional registries and 4 semantic anomaly passes. Not an absolute binary guarantee.
+              </p>
+            </div>
+
+            <!-- Triangulation Breakdown -->
+            <div class="space-y-3 text-xs">
+              <div class="flex items-center justify-between p-2.5 rounded-lg bg-obsidian-850 border border-obsidian-800">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-2 h-2 rounded-full bg-mint-400" aria-hidden="true"></span>
+                  <span class="font-medium text-slate-200">Source Registry Authenticity</span>
+                </div>
+                <span class="font-mono text-mint-400 font-bold">96 / 100</span>
+              </div>
+
+              <div class="flex items-center justify-between p-2.5 rounded-lg bg-obsidian-850 border border-obsidian-800">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-2 h-2 rounded-full bg-skyAccent-400" aria-hidden="true"></span>
+                  <span class="font-medium text-slate-200">Independent Wire Corroboration</span>
+                </div>
+                <span class="font-mono text-skyAccent-300 font-bold">3 Primary Outlets</span>
+              </div>
+
+              <div class="flex items-center justify-between p-2.5 rounded-lg bg-obsidian-850 border border-obsidian-800">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-2 h-2 rounded-full bg-indigoAccent-400" aria-hidden="true"></span>
+                  <span class="font-medium text-slate-200">Synthetic NLP Entropy Level</span>
+                </div>
+                <span class="font-mono text-slate-300 font-bold">0.88 (Human Cadence)</span>
+              </div>
+            </div>
+
+            <!-- Corroborating Wire Badges -->
+            <div>
+              <p class="text-xs font-semibold text-slate-300 mb-2">Validated Institutional Wire Matches</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2.5 py-1 rounded-lg bg-obsidian-800 text-slate-300 border border-obsidian-700 font-medium flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-mint-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Associated Press API
+                </span>
+                <span class="px-2.5 py-1 rounded-lg bg-obsidian-800 text-slate-300 border border-obsidian-700 font-medium flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-mint-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Reuters News Wire
+                </span>
+                <span class="px-2.5 py-1 rounded-lg bg-obsidian-800 text-slate-300 border border-obsidian-700 font-medium flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-mint-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  PubMed Ledger
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <!-- CARD: MISINFORMATION TRENDS & VELOCITY RADAR -->
+          <section id="trends" aria-labelledby="trends-heading" class="p-5 sm:p-6 rounded-2xl bg-obsidian-900 border border-obsidian-700/80 space-y-4">
+            <div class="flex items-center justify-between pb-2 border-b border-obsidian-800">
+              <h3 id="trends-heading" class="text-base font-bold text-white flex items-center gap-2">
+                <svg class="w-5 h-5 text-roseAccent-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                <span>Viral Claim Velocity</span>
+              </h3>
+              <span class="text-xs font-mono text-roseAccent-400 font-semibold bg-roseAccent-950/60 px-2 py-0.5 rounded border border-roseAccent-500/30">+14/hr</span>
+            </div>
+
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Clusters currently exceeding propagation speed thresholds across monitored social syndicates:
+            </p>
+
+            <div class="space-y-3">
+              <!-- Trend Cluster 1 -->
+              <div class="p-3 rounded-xl bg-obsidian-950 border border-obsidian-800 text-xs space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-200">Synthetic Deepfake Avatars</span>
+                  <span class="text-roseAccent-400 font-mono font-bold">Critical Surge</span>
+                </div>
+                <p class="text-slate-400 text-[11px]">84.2k impressions • Diffusion temporal residual matches found</p>
+              </div>
+
+              <!-- Trend Cluster 2 -->
+              <div class="p-3 rounded-xl bg-obsidian-950 border border-obsidian-800 text-xs space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-200">Fabricated Maritime Sightings</span>
+                  <span class="text-amberAccent-300 font-mono font-bold">Elevated</span>
+                </div>
+                <p class="text-slate-400 text-[11px]">19.8k impressions • Repurposed 3D Blender renders debunked</p>
+              </div>
+            </div>
+
+            <a href="#trends" class="block text-center py-2.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 hover:text-white text-xs font-semibold border border-obsidian-700 min-h-[44px] transition-colors">
+              Inspect Realtime Radar
+            </a>
+          </section>
+
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ========================================================================= -->
+    <!-- ACCESSIBLE MOBILE BOTTOM NAVIGATION (PHONES ONLY) -->
+    <!-- Ensures primary actions & easy touch targets on narrow viewports -->
+    <!-- ========================================================================= -->
+    <nav aria-label="Mobile Navigation" class="md:hidden fixed bottom-0 inset-x-0 bg-obsidian-900/95 backdrop-blur border-t border-obsidian-700/80 px-2 py-1.5 z-40 flex items-center justify-around shadow-2xl">
+      <a href="#overview" class="flex flex-col items-center justify-center p-2 text-mint-400 min-w-[56px] min-h-[48px]">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        <span class="text-[10px] font-semibold mt-1">Overview</span>
+      </a>
+
+      <a href="#composer" class="flex flex-col items-center justify-center p-2 text-slate-400 hover:text-white min-w-[56px] min-h-[48px]">
+        <div class="p-1 rounded-full bg-mint-500 text-obsidian-950 font-bold -mt-2 shadow-lg shadow-mint-500/20">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+        </div>
+        <span class="text-[10px] font-semibold mt-0.5">Verify</span>
+      </a>
+
+      <a href="#recent-checks" class="flex flex-col items-center justify-center p-2 text-slate-400 hover:text-white min-w-[56px] min-h-[48px]">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span class="text-[10px] font-semibold mt-1">History</span>
+      </a>
+
+      <a href="#trends" class="flex flex-col items-center justify-center p-2 text-slate-400 hover:text-white min-w-[56px] min-h-[48px]">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+        </svg>
+        <span class="text-[10px] font-semibold mt-1">Radar</span>
+      </a>
+    </nav>
+
+  </div>
+
+  <!-- Client Interaction Script for Modal/Tabs/Keyboard accessibility -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mobile drawer toggle
+      const menuBtn = document.getElementById('mobile-menu-btn');
+      const mobileNav = document.getElementById('mobile-nav-panel');
+      if (menuBtn && mobileNav) {
+        menuBtn.addEventListener('click', () => {
+          const isExpanded = menuBtn.getAttribute('aria-expanded') === 'true';
+          menuBtn.setAttribute('aria-expanded', !isExpanded);
+          mobileNav.classList.toggle('hidden');
+        });
+      }
+
+      // Tab selection behavior
+      const tabs = document.querySelectorAll('[role="tab"]');
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => {
+            t.setAttribute('aria-selected', 'false');
+            t.className = 'tab-btn px-4 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-2 text-slate-400 hover:text-white hover:bg-obsidian-800 border border-transparent min-h-[44px] transition-all';
+          });
+          tab.setAttribute('aria-selected', 'true');
+          tab.className = 'tab-btn px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 bg-indigoAccent-500/20 text-indigoAccent-300 border border-indigoAccent-400/40 shadow-sm min-h-[44px] transition-all';
+        });
+      });
+
+      // Quick paste preset handler
+      const textarea = document.getElementById('claim-textarea');
+      const charCounter = document.getElementById('char-guidance');
+      const presetBtns = document.querySelectorAll('.preset-btn');
+      const clearBtn = document.getElementById('clear-btn');
+
+      function updateCounter() {
+        if (!textarea || !charCounter) return;
+        const count = textarea.value.length;
+        charCounter.textContent = `${count} / 3,000 characters (min. 40 recommended for semantic cross-indexing)`;
+      }
+
+      presetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (textarea) {
+            textarea.value = btn.getAttribute('data-claim');
+            updateCounter();
+            textarea.focus();
+          }
+        });
+      });
+
+      if (clearBtn && textarea) {
+        clearBtn.addEventListener('click', () => {
+          textarea.value = '';
+          updateCounter();
+          textarea.focus();
+        });
+      }
+
+      if (textarea) {
+        textarea.addEventListener('input', updateCounter);
+      }
+
+      // Global keyboard shortcut: Cmd+Enter or Ctrl+Enter to trigger Analyze
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          const analyzeBtn = document.getElementById('analyze-cta');
+          if (analyzeBtn) {
+            analyzeBtn.click();
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>

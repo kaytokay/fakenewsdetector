@@ -6,64 +6,102 @@
   <title>TruthShield | Misinformation & Synthetic Media Screening</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-    body { font-family: 'Plus Jakarta Sans', sans-serif; }
-    .mono { font-family: 'JetBrains Mono', monospace; }
-    .tab-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-    .tab-btn.active-tab {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
-      border-color: #6366f1;
-      color: #a5b4fc;
-      box-shadow: 0 0 15px rgba(99, 102, 241, 0.2);
-    }
-    .glow-card {
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(51, 65, 85, 0.6);
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
-    }
-    :root { color-scheme: dark; --ink:#e8f0ed; --muted:#91a19b; --line:#1c2927; --paper:#080b0d; --panel:#0d1216; --accent:#12c99a; }
-    body { background:var(--paper)!important; color:var(--ink)!important; padding:24px!important; }
-    body > div { max-width:1120px!important; }
-    .glow-card { background:linear-gradient(145deg,#0e1518,#0b1014)!important; color:var(--ink)!important; border:1px solid var(--line)!important; box-shadow:0 14px 38px rgba(0,0,0,.24)!important; backdrop-filter:none!important; }
-    header.glow-card { background:linear-gradient(120deg,#0c1716,#10171c)!important; color:#f0faf6!important; border:1px solid #18352d!important; box-shadow:0 16px 40px rgba(0,0,0,.3)!important; }
-    header .text-slate-400, header .text-slate-300 { color:#91aaa0!important; }
-    .bg-slate-950\/60,.bg-slate-950\/50,.bg-slate-900\/90,.bg-slate-900\/50,.bg-slate-950 { background:#090e12!important; }
-    .text-slate-100,.text-slate-200,.text-slate-300 { color:#dce8e3!important; }
-    .text-slate-400 { color:#91a19b!important; }
-    .text-slate-500 { color:#71817a!important; }
-    .border-slate-800,.border-slate-800\/80,.border-slate-800\/90,.border-slate-700\/80 { border-color:#1d2a2a!important; }
-    input:not([type=file]),textarea { background:#090e12!important; color:var(--ink)!important; border-color:#253534!important; }
-    .tab-btn { min-height:48px; }
+    :root { color-scheme:dark; --canvas:#080b0d; --surface:#0d1216; --inset:#090e12; --line:#1c2927; --interactive:#253534; --ink:#e1e2e5; --muted:#aab8b1; --mint:#12c99a; --mint-light:#52e5ba; --sage:#8ec5a3; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; padding:0!important; min-height:100vh; background:var(--canvas)!important; color:var(--ink)!important; font-family:'Plus Jakarta Sans',sans-serif!important; }
+    .font-sans { font-family:'Plus Jakarta Sans',sans-serif!important; }
+    .mono,.font-mono,code,kbd { font-family:'JetBrains Mono',monospace!important; }
+    body > .app-shell { max-width:none!important; width:100%; min-height:100vh; display:grid; grid-template-columns:248px minmax(0,1fr); gap:0; }
+    .app-sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:24px 16px; background:var(--surface); border-right:1px solid var(--line); }
+    .app-main { min-width:0; padding:28px clamp(16px,3vw,40px) 40px; }
+    .app-main > .max-w-7xl { max-width:1120px!important; }
+    .glow-card { background:linear-gradient(145deg,#0e1518,#0b1014)!important; color:var(--ink)!important; border:1px solid var(--line)!important; border-radius:16px; box-shadow:0 14px 38px rgba(0,0,0,.24)!important; backdrop-filter:none!important; }
+    header.glow-card { background:linear-gradient(120deg,#0c1716,#10171c)!important; color:#f0faf6!important; border-color:#18352d!important; box-shadow:0 16px 40px rgba(0,0,0,.3)!important; }
+    header .text-slate-400,header .text-slate-300 { color:#b5c6be!important; }
+    .bg-slate-950\/60,.bg-slate-950\/50,.bg-slate-900\/90,.bg-slate-900\/50,.bg-slate-950 { background:var(--inset)!important; }
+    .text-slate-100,.text-slate-200 { color:#e1e2e5!important; }
+    .text-slate-300 { color:#c7d3cd!important; }
+    .text-slate-400 { color:#aab8b1!important; }
+    .text-slate-500 { color:#91a19b!important; }
+    .border-slate-800,.border-slate-800\/80,.border-slate-800\/90,.border-slate-700\/80 { border-color:#1c2927!important; }
+    input:not([type=file]),textarea { background:var(--inset)!important; color:var(--ink)!important; border-color:var(--interactive)!important; font-family:'Plus Jakarta Sans',sans-serif!important; }
+    input::placeholder,textarea::placeholder { color:#91a19b!important; opacity:1; }
+    input[type=file] { max-width:100%; }
+    .tab-btn { min-height:48px; transition:background-color .18s ease,border-color .18s ease,color .18s ease; }
     .tab-btn.active-tab { background:rgba(18,201,154,.13)!important; border-color:#167c62!important; color:#52e5ba!important; box-shadow:0 0 20px rgba(18,201,154,.08)!important; }
-    button { cursor:pointer; }
-    button:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid #8ec5a3; outline-offset:2px; }
-    #resultNotice { border:1px solid #21483b; background:#0d1b17; color:#9ad8bd; }
+    button { min-height:44px; cursor:pointer; }
+    [role="tab"] { min-height:48px; }
+    a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid var(--sage); outline-offset:3px; }
+    #resultNotice { border:1px solid #21483b; background:#0d1b17; color:#b1e1cc; }
     #errorNotice { border:1px solid #59312e; background:#211211; color:#f0a99c; }
-    #assessmentBox { border-color:#24433a!important; background:#0a1313!important; }
+    #assessmentBox { border-color:#21483b!important; background:#0a1313!important; }
     #assessmentBox h3,#assessmentBox p,#assessmentEvidence { color:#bdcec8!important; }
     #verdictHeading { line-height:1.15; }
-    .tab-btn, button { transition:all .18s ease; }
-    @media (max-width:640px) { body { padding:12px!important; } }
+    #loadingBar[role="status"] { border-color:#167c62!important; }
+    .app-nav-link { min-height:44px; display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid transparent; border-radius:12px; color:#c7d3cd; font-size:14px; font-weight:600; text-decoration:none; }
+    .app-nav-link:hover { background:#141a1d; color:#fff; }
+    .app-nav-link[aria-current="page"] { color:var(--mint-light); background:rgba(18,201,154,.12); border-color:rgba(18,201,154,.28); }
+    #overview,#verify,#results,#history,#analytics { scroll-margin-top:24px; }
+    .mobile-app-nav { display:none; }
+    @media (max-width:900px) {
+      body > .app-shell { grid-template-columns:200px minmax(0,1fr); }
+      .app-main { padding:20px 16px 32px; }
+    }
+    @media (max-width:680px) {
+      body > .app-shell { display:block; min-height:100vh; }
+      .app-sidebar { display:none; }
+      .app-main { padding:12px 12px 88px; }
+      .mobile-app-nav { position:fixed; z-index:50; left:0; right:0; bottom:0; display:flex; justify-content:space-around; gap:4px; padding:8px max(8px,env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)); background:rgba(13,18,22,.97); border-top:1px solid var(--interactive); backdrop-filter:blur(12px); }
+      .mobile-app-nav a { min-width:48px; min-height:48px; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:4px; border-radius:10px; color:#c7d3cd; text-decoration:none; font-size:10px; font-weight:600; }
+      .mobile-app-nav a[aria-current="page"] { color:var(--mint-light); }
+      .mobile-app-nav a:focus-visible { outline-offset:-2px; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; transition-duration:.01ms!important; }
+    }
   </style>
 </head>
-<body class="bg-[#090d16] text-slate-100 min-h-screen p-4 md:p-8 font-sans antialiased">
+<body class="bg-[#080b0d] text-slate-100 min-h-screen font-sans antialiased">
+  <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-slate-950">Skip to main content</a>
+  <div class="app-shell">
+    <aside class="app-sidebar" aria-label="Application navigation">
+      <a href="#overview" class="flex items-center gap-3 rounded-xl px-2 py-2 text-white no-underline focus-visible:outline">
+        <span class="grid h-10 w-10 place-items-center rounded-xl bg-emerald-400 text-xl text-slate-950" aria-hidden="true">✓</span>
+        <span><strong class="block text-base">TruthShield</strong><span class="block text-xs text-slate-400">Media verification</span></span>
+      </a>
+      <nav class="mt-9 space-y-1" aria-label="Workspace">
+        <a class="app-nav-link" href="#overview" aria-current="page"><span aria-hidden="true">⌂</span>Overview</a>
+        <a class="app-nav-link" href="#verify"><span aria-hidden="true">＋</span>Verify content</a>
+        <a class="app-nav-link" href="#results"><span aria-hidden="true">◉</span>Latest result</a>
+        <a class="app-nav-link" href="#history"><span aria-hidden="true">◷</span>Recent checks</a>
+        <a class="app-nav-link" href="#analytics"><span aria-hidden="true">▥</span>Session insights</a>
+      </nav>
+      <div class="mt-auto rounded-xl border border-[#253534] bg-[#090e12] p-4 text-sm">
+        <p class="font-semibold text-slate-100">Evidence first</p>
+        <p class="mt-2 leading-6 text-slate-300">Model signals help guide review. They are not proof of truth or authenticity.</p>
+      </div>
+    </aside>
+    <main id="main-content" class="app-main">
   <div class="max-w-7xl mx-auto space-y-6">
 
   <!-- ── Top Header Bar ── -->
-  <header class="glow-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-950/80">
+  <header id="overview" class="glow-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-950/80">
     <div>
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-          <span class="text-xl">🛡️</span>
+        <div class="w-10 h-10 rounded-xl bg-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20" aria-hidden="true">
+          <svg class="w-6 h-6 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3 19 6v5c0 4.6-2.8 7.8-7 10-4.2-2.2-7-5.4-7-10V6l7-3Z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4" />
+          </svg>
         </div>
         <div>
-          <h1 class="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 bg-clip-text text-transparent">
-            TruthShield
-          </h1>
+          <h1 class="text-2xl font-extrabold tracking-tight text-white">TruthShield</h1>
           <p class="text-xs text-slate-400 font-medium mt-0.5">
-            Multimodal screening for misinformation and AI-generated or manipulated content
+            Review news claims, screenshots, images, video, and public URLs
           </p>
         </div>
       </div>
@@ -84,35 +122,35 @@
   </header>
 
   <!-- ── 5-Tab Input Control Bar ── -->
-  <div class="glow-card rounded-2xl overflow-hidden border border-slate-800">
+  <div id="verify" class="glow-card rounded-2xl overflow-hidden border border-slate-800">
     <div role="tablist" aria-label="Choose a scan type" class="grid grid-cols-2 md:grid-cols-5 border-b border-slate-800/80 bg-slate-950/60 p-2 gap-2 text-xs md:text-sm font-semibold">
-      <button onclick="switchTab('text')" id="tab-text" class="tab-btn active-tab py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-transparent">
-        <span>📰</span> 1. News Text
+      <button role="tab" aria-selected="true" tabindex="0" aria-controls="panel-text" onclick="switchTab('text')" id="tab-text" class="tab-btn active-tab py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-transparent">
+        News Text
       </button>
-      <button onclick="switchTab('screenshot')" id="tab-screenshot" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>📱</span> 2. Screenshot (OCR)
+      <button role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-screenshot" onclick="switchTab('screenshot')" id="tab-screenshot" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        Screenshot OCR
       </button>
-      <button onclick="switchTab('image')" id="tab-image" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>🖼️</span> 3. Image Analysis
+      <button role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-image" onclick="switchTab('image')" id="tab-image" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        Image Analysis
       </button>
-      <button onclick="switchTab('video')" id="tab-video" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>🎬</span> 4. Video Analysis
+      <button role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-video" onclick="switchTab('video')" id="tab-video" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        Video Analysis
       </button>
-      <button onclick="switchTab('url')" id="tab-url" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
-        <span>🌐</span> 5. Web URL
+      <button role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-url" onclick="switchTab('url')" id="tab-url" class="tab-btn py-3 px-4 rounded-xl text-slate-400 hover:text-slate-200 flex items-center justify-center gap-2 border border-transparent">
+        Web URL
       </button>
     </div>
 
     <div class="p-6 md:p-8">
       <p class="text-sm text-slate-500 mb-5">Choose what you want to inspect. Results are screening signals, not proof of authenticity.</p>
       <!-- Panel 1: News Text -->
-      <div id="panel-text" class="space-y-4">
-        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Article Headline or Statement</label>
-        <p class="text-xs text-slate-500">The result includes the language-model signals and any matching news references found for review. Model scores are estimates, not proof.</p>
-        <textarea id="inputText" rows="4"
+      <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="space-y-4">
+        <label for="inputText" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Article Headline or Statement</label>
+        <p id="textHelp" class="text-xs text-slate-300">The result includes the language-model signals and any matching news references found for review. Model scores are estimates, not proof.</p>
+        <textarea id="inputText" rows="4" aria-describedby="textHelp textCount"
           class="w-full p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 resize-none transition"
           placeholder="Paste a claim, headline, or article excerpt (at least 10 characters)…"></textarea>
-        <div class="flex justify-between text-xs text-slate-500"><span>Long text is trimmed to the model’s input limit.</span><span><span id="textCount">0</span> characters</span></div>
+        <div class="flex flex-wrap justify-between gap-2 text-xs text-slate-300"><span>Long text is trimmed to the model’s input limit.</span><span><span id="textCount">0</span> characters</span></div>
         <button onclick="submitText()"
           class="px-7 py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl font-semibold text-sm transition shadow-lg shadow-indigo-600/30">
           Run Text Forensic Analysis
@@ -120,8 +158,8 @@
       </div>
 
       <!-- Panel 2: Screenshot -->
-      <div id="panel-screenshot" class="hidden space-y-4">
-        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Screenshot or Social Forward</label>
+      <div id="panel-screenshot" role="tabpanel" aria-labelledby="tab-screenshot" class="hidden space-y-4">
+        <label for="inputScreenshot" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Screenshot or Social Forward</label>
         <p class="text-xs text-slate-400">We extract and screen the screenshot’s text, then show matching news references. The whole-page image-model score is reported separately and does not decide whether the claim is true.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputScreenshot" accept="image/*"
@@ -134,8 +172,8 @@
       </div>
 
       <!-- Panel 3: Image -->
-      <div id="panel-image" class="hidden space-y-4">
-        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Image or Portrait File</label>
+      <div id="panel-image" role="tabpanel" aria-labelledby="tab-image" class="hidden space-y-4">
+        <label for="inputImage" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Image or Portrait File</label>
         <p class="text-xs text-slate-400">Screens the full image for AI-generation patterns, inspects local pixel statistics and provenance metadata, and runs separate face-forgery models only when a face is detected.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputImage" accept="image/*"
@@ -148,8 +186,8 @@
       </div>
 
       <!-- Panel 4: Video -->
-      <div id="panel-video" class="hidden space-y-4">
-        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Video File (.mp4 / .webm)</label>
+      <div id="panel-video" role="tabpanel" aria-labelledby="tab-video" class="hidden space-y-4">
+        <label for="inputVideo" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Video File (.mp4 / .webm)</label>
         <p class="text-xs text-slate-400">Scans every decoded frame for whole-frame AI-generation signals and pixel statistics; adds face-forgery models when faces are present. Metadata and exploratory rPPG are supporting context.</p>
         <div class="p-6 border-2 border-dashed border-slate-700/80 rounded-2xl bg-slate-900/50 hover:bg-slate-900/80 transition">
           <input type="file" id="inputVideo" accept="video/*"
@@ -162,8 +200,8 @@
       </div>
 
       <!-- Panel 5: URL -->
-      <div id="panel-url" class="hidden space-y-4">
-        <label class="block text-xs uppercase tracking-wider text-slate-400 font-semibold">Web Article or Media Link</label>
+      <div id="panel-url" role="tabpanel" aria-labelledby="tab-url" class="hidden space-y-4">
+        <label for="inputUrl" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Web Article or Media Link</label>
         <input type="url" id="inputUrl"
           class="w-full p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-200"
           placeholder="https://example.com/news-story or direct https://.../sample.jpg" />
@@ -176,10 +214,12 @@
   </div>
 
   <div id="errorNotice" class="hidden p-4 rounded-xl text-sm" role="alert"></div>
-  <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed">Article authenticity checks look for a close headline match at a publisher. This does not fact-check every claim or prove a screenshot is unaltered.</div>
+  <div id="results" class="scroll-mt-6">
+    <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed" role="status" aria-live="polite">Article authenticity checks look for a close headline match at a publisher. This does not fact-check every claim or prove a screenshot is unaltered.</div>
+  </div>
 
   <!-- ── Loading Indicator ── -->
-  <div id="loadingBar" class="hidden glow-card p-5 rounded-2xl flex items-center gap-4 border border-indigo-500/30">
+  <div id="loadingBar" role="status" aria-live="polite" class="hidden glow-card p-5 rounded-2xl flex items-center gap-4 border border-indigo-500/30">
     <div class="relative flex items-center justify-center">
       <div class="w-8 h-8 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
     </div>
@@ -190,7 +230,7 @@
   </div>
 
   <!-- ── Primary Forensic Result Banner & Gauge ── -->
-  <div id="verdictCard" class="hidden glow-card p-6 rounded-2xl space-y-6 border border-slate-700/70">
+  <div id="verdictCard" class="hidden glow-card p-6 rounded-2xl space-y-6 border border-slate-700/70" aria-live="polite" aria-atomic="false">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
       
       <!-- Left: Verdict Info -->
@@ -209,7 +249,7 @@
           <div>
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600">Why this result</h3>
             <p id="assessmentSummary" class="text-xs text-slate-600 mt-1"></p>
-            <p id="headlineMatchScore" class="hidden text-sm font-bold text-emerald-700 mt-2">Headline match: <span id="headlineMatchValue"></span>% <span class="text-[10px] font-medium text-slate-500">(word overlap, not a truth probability)</span></p>
+            <p id="headlineMatchScore" class="hidden text-sm font-bold text-emerald-700 mt-2">Publisher authenticity indicator: <span id="headlineMatchValue"></span>% <span class="text-[10px] font-medium text-slate-500">(trusted headline-match evidence; not a truth probability)</span></p>
           </div>
           <ul id="assessmentEvidence" class="space-y-2 text-xs text-slate-700"></ul>
         </div>
@@ -225,6 +265,18 @@
           </div>
         </div>
         <span id="gaugeLabel" class="text-[11px] font-semibold text-slate-400 mt-1">Model-estimated signal, not proof</span>
+      </div>
+
+      <div id="authenticityChartPanel" class="hidden lg:col-span-4 min-h-64 flex-col items-center justify-center bg-slate-950/60 p-4 rounded-xl border border-emerald-900/60">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">Publisher match evidence</span>
+        <div class="relative w-48 h-48">
+          <canvas id="authenticityChart" aria-label="Publisher authenticity indicator chart"></canvas>
+          <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span id="authenticityChartValue" class="text-3xl font-black mono text-emerald-400">0%</span>
+            <span class="text-[10px] uppercase tracking-wider text-slate-400">indicator</span>
+          </div>
+        </div>
+        <span id="authenticityChartLabel" class="text-[11px] text-center text-slate-400 mt-1">Based on trusted headline matches, not claim accuracy</span>
       </div>
 
     </div>
@@ -280,6 +332,15 @@
       </div>
     </div>
   </div>
+
+  <section id="history" aria-labelledby="historyHeading" class="glow-card rounded-2xl p-5 sm:p-6 space-y-4">
+    <div class="flex flex-wrap items-end justify-between gap-2">
+      <div><h2 id="historyHeading" class="text-lg font-bold text-white">Recent checks</h2><p class="mt-1 text-sm text-slate-300">Available for this browser session only.</p></div>
+      <span class="text-xs font-mono text-slate-400">LATEST 5</span>
+    </div>
+    <p id="recentEmpty" class="rounded-xl border border-dashed border-[#34453f] bg-[#090e12] p-4 text-sm text-slate-300">Your completed scans will appear here with their modality and reported model signal.</p>
+    <ol id="recentChecks" class="space-y-3" aria-live="polite" aria-relevant="additions"></ol>
+  </section>
 
   <!-- ── Forensic Visualizations Grid ── -->
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -388,7 +449,7 @@
   </div>
 
   <!-- ── Session overview (counts, not benchmark accuracy) ── -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div id="analytics" class="grid grid-cols-1 md:grid-cols-3 gap-6">
     <div class="glow-card p-5 rounded-2xl space-y-3 border border-slate-800">
       <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
         <span>🍩</span> Session signal distribution
@@ -418,6 +479,15 @@
   </div>
 
 </div>
+    </main>
+    <nav class="mobile-app-nav" aria-label="Mobile navigation">
+      <a href="#overview" aria-current="page"><span aria-hidden="true">⌂</span><span>Overview</span></a>
+      <a href="#verify"><span aria-hidden="true">＋</span><span>Verify</span></a>
+      <a href="#results"><span aria-hidden="true">◉</span><span>Result</span></a>
+      <a href="#history"><span aria-hidden="true">◷</span><span>History</span></a>
+      <a href="#analytics"><span aria-hidden="true">▥</span><span>Insights</span></a>
+    </nav>
+  </div>
 
 <script>
 const API = (window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : "http://127.0.0.1:8000";
@@ -428,6 +498,7 @@ function switchTab(active) {
     document.getElementById(`panel-${t}`).classList.toggle("hidden", t !== active);
     const btn = document.getElementById(`tab-${t}`);
     btn.setAttribute("aria-selected", String(t === active));
+    btn.setAttribute("tabindex", t === active ? "0" : "-1");
     if (t === active) {
       btn.className = "tab-btn active-tab py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-transparent";
     } else {
@@ -436,8 +507,19 @@ function switchTab(active) {
   });
 }
 
+document.querySelector('[role="tablist"]').addEventListener("keydown", event => {
+  const current = TABS.findIndex(tab => document.getElementById(`tab-${tab}`) === document.activeElement);
+  if (current < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1
+    : (current + (event.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length;
+  const tab = document.getElementById(`tab-${TABS[next]}`);
+  switchTab(TABS[next]);
+  tab.focus();
+});
+
 // ── Chart.js Setup with Sleek Dark Styling ────────────────────────────────
-Chart.defaults.color = '#68756f';
+Chart.defaults.color = '#aab8b1';
 Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
 
 // 1. Semi-Circular Risk Gauge
@@ -457,6 +539,35 @@ const gaugeChart = new Chart(document.getElementById("gaugeChart"), {
     responsive: true,
     maintainAspectRatio: false,
     plugins: { tooltip: { enabled: false } }
+  }
+});
+
+const authenticityChart = new Chart(document.getElementById("authenticityChart"), {
+  type: "doughnut",
+  data: {
+    labels: ["Trusted publisher match indicator", "No trusted match evidence"],
+    datasets: [{
+      data: [0, 100],
+      backgroundColor: ["#10b981", "#1e293b"],
+      borderColor: "#0b1112",
+      borderWidth: 3,
+      hoverOffset: 3
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "76%",
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: context => context.dataIndex === 0
+            ? ` Publisher match indicator: ${context.raw}%`
+            : ` Remaining: ${context.raw}% (no match evidence; not a fake score)`
+        }
+      }
+    }
   }
 });
 
@@ -661,7 +772,23 @@ function renderResult(data) {
   const faceFlagged = data.modality === "Image" && Number.isFinite(data.face_signal_pct) && data.face_signal_pct >= 50;
   const isNewsCheck = data.modality === "Text" || data.modality === "Screenshot" || data.modality === "URL";
   const isInconclusive = data.assessment?.status === "INCONCLUSIVE";
+  const authenticityPct = Math.max(0, Math.min(100, Number(data.assessment?.authenticity_score_pct) || 0));
   document.getElementById("gaugePanel").classList.toggle("hidden", isNewsCheck);
+  const authenticityPanel = document.getElementById("authenticityChartPanel");
+  authenticityPanel.classList.toggle("hidden", !isNewsCheck);
+  authenticityPanel.style.display = isNewsCheck ? "flex" : "none";
+  authenticityChart.data.datasets[0].data = [authenticityPct, 100 - authenticityPct];
+  authenticityChart.data.datasets[0].backgroundColor = [
+    data.assessment?.trusted_source_match_count > 0 ? "#10b981" : "#f59e0b",
+    "#1e293b"
+  ];
+  authenticityChart.resize();
+  authenticityChart.update();
+  document.getElementById("authenticityChartValue").textContent = `${authenticityPct}%`;
+  document.getElementById("authenticityChartValue").className = `text-3xl font-black mono ${data.assessment?.trusted_source_match_count > 0 ? "text-emerald-400" : "text-amber-400"}`;
+  document.getElementById("authenticityChartLabel").textContent = data.assessment?.trusted_source_match_count > 0
+    ? `Matched ${data.assessment.trusted_source_match_count} trusted publisher(s); this does not verify every claim`
+    : "No trusted headline match found; 0% means no match evidence, not proven false";
   document.getElementById("modalityBadge").textContent = data.modality;
 
   const pill = document.getElementById("verdictPill");
@@ -671,8 +798,10 @@ function renderResult(data) {
   }`;
 
   const h = document.getElementById("verdictHeading");
-  h.textContent = isNewsCheck || isInconclusive || data.modality === "Image" ? data.prediction : `${data.prediction} (${data.confidence_pct}%)`;
-  const authenticityColor = data.assessment?.status === "LIKELY AUTHENTIC ARTICLE" ? "text-emerald-700" : "text-amber-700";
+  h.textContent = isNewsCheck
+    ? `Publisher authenticity indicator: ${data.assessment?.authenticity_score_pct ?? 0}%`
+    : isInconclusive || data.modality === "Image" ? data.prediction : `${data.prediction} (${data.confidence_pct}%)`;
+  const authenticityColor = data.assessment?.trusted_source_match_count > 0 ? "text-emerald-400" : "text-amber-400";
   h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? authenticityColor : isInconclusive || faceFlagged ? "text-amber-400" : isFake ? "text-rose-400" : "text-emerald-400"}`;
 
   document.getElementById("verdictPreview").textContent = data.preview || "";
@@ -723,7 +852,7 @@ function renderResult(data) {
             ${escapeHtml(s.title)}
           </a>
           <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(s.source)} &bull; ${escapeHtml(s.pubDate)}</span>
-          ${s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-emerald-700">Headline match</span>' : ''}
+          ${s.trusted_source && s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-emerald-400">Trusted headline match</span>' : s.trusted_source ? '<span class="ml-2 text-[10px] font-bold text-sky-400">Trusted publisher</span>' : s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-slate-400">Headline match</span>' : ''}
           ${s.is_fact_check ? '<span class="ml-2 text-[10px] font-bold text-amber-700">Fact-check / disputed-claim coverage</span>' : ''}
         </div>
         <a href="${escapeHtml(safeHttpUrl(s.link))}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-200 px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700 font-semibold whitespace-nowrap">
@@ -789,6 +918,43 @@ function renderResult(data) {
   refreshGlobalCharts(data.live_stats);
 }
 
+function addRecentCheck(data) {
+  const list = document.getElementById("recentChecks");
+  const empty = document.getElementById("recentEmpty");
+  const item = document.createElement("li");
+  const state = String(data.assessment?.status || (data.elevated_signals ? "Elevated signal" : "Review complete"));
+  const stateTone = /inconclusive|context|uncertain/i.test(state)
+    ? "border-amber-800 bg-amber-950/40 text-amber-200"
+    : /elevated|synthetic|fake/i.test(state)
+      ? "border-rose-900 bg-rose-950/40 text-rose-200"
+      : "border-emerald-900 bg-emerald-950/40 text-emerald-200";
+  const preview = String(data.preview || data.prediction || "Completed media analysis").trim();
+  const source = String(data.modality || "Content");
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date());
+  item.className = "rounded-xl border border-[#253534] bg-[#090e12] p-4";
+
+  const meta = document.createElement("div");
+  meta.className = "flex flex-wrap items-center justify-between gap-2";
+  const badge = document.createElement("span");
+  badge.className = `rounded-lg border px-3 py-1.5 text-xs font-semibold ${stateTone}`;
+  badge.textContent = state;
+  const detail = document.createElement("span");
+  detail.className = "text-xs text-slate-400";
+  detail.textContent = `${source} · ${time}`;
+  meta.append(badge, detail);
+
+  const summary = document.createElement("p");
+  summary.className = "mt-3 break-words text-sm leading-6 text-slate-200";
+  summary.textContent = preview.length > 220 ? `${preview.slice(0, 220)}…` : preview;
+  const note = document.createElement("p");
+  note.className = "mt-2 text-xs text-slate-400";
+  note.textContent = `Reported model output: ${String(data.prediction || state)}. This is a screening signal, not a conclusion.`;
+  item.append(meta, summary, note);
+  list.prepend(item);
+  while (list.children.length > 5) list.lastElementChild.remove();
+  empty.classList.add("hidden");
+}
+
 // ── API Submission Handlers ───────────────────────────────────────────────
 async function callApi(url, options) {
   const errorBox = document.getElementById("errorNotice");
@@ -804,15 +970,12 @@ async function callApi(url, options) {
     }
     const data = await res.json();
     renderResult(data);
-    document.getElementById("resultNotice").textContent = data.assessment?.status === "LIKELY AUTHENTIC ARTICLE"
-      ? "Likely authentic article: a close headline match was found in the listed publisher references. This does not verify every claim or prove a screenshot is unaltered."
-      : data.assessment?.status === "UNVERIFIED" && data.web_verification?.corroborated
-        ? "Related references were found, but there was no close publisher headline match. Article authenticity remains unverified."
-        : !data.web_verification
-      ? "This model score is an estimate and should be reviewed alongside the original media and its source."
-      : data.web_verification.corroborated
-        ? `Reference articles found: ${data.web_verification.match_count}. They do not establish article authenticity without a headline match.`
-        : "No matching publisher references were found. Article authenticity remains unverified.";
+    addRecentCheck(data);
+    document.getElementById("resultNotice").textContent = data.web_verification
+      ? (data.assessment?.trusted_source_match_count > 0
+        ? `Headline matches at ${data.assessment.trusted_source_match_count} trusted publisher(s) contribute to the authenticity indicator. It does not verify every claim or prove a screenshot is unaltered.`
+        : "Authenticity indicator is 0% because no trusted publisher headline match was found. This means there is no match evidence, not that the article is proven false.")
+      : "This model score is an estimate and should be reviewed alongside the original media and its source.";
   } catch (e) {
     document.getElementById("loadingBar").classList.add("hidden");
     errorBox.textContent = `Analysis could not be completed: ${e.message}`;
