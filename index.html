@@ -142,7 +142,7 @@
     </div>
 
     <div class="p-6 md:p-8">
-      <p class="text-sm text-slate-500 mb-5">Choose what you want to inspect. Results are screening signals, not proof of authenticity.</p>
+      <p class="text-sm text-slate-300 mb-5">Choose what you want to inspect. Search results can show relevant support or disagreement, but matching terms alone do not establish what is true.</p>
       <!-- Panel 1: News Text -->
       <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" class="space-y-4">
         <label for="inputText" class="block text-xs uppercase tracking-wider text-slate-300 font-semibold">Article Headline or Statement</label>
@@ -215,7 +215,7 @@
 
   <div id="errorNotice" class="hidden p-4 rounded-xl text-sm" role="alert"></div>
   <div id="results" class="scroll-mt-6">
-    <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed" role="status" aria-live="polite">Article authenticity checks look for a close headline match at a publisher. This does not fact-check every claim or prove a screenshot is unaltered.</div>
+    <div id="resultNotice" class="p-4 rounded-xl text-sm leading-relaxed" role="status" aria-live="polite">Relevant reporting can help assess whether a claim is plausible. Open the sources and compare their evidence and context.</div>
   </div>
 
   <!-- ── Loading Indicator ── -->
@@ -249,7 +249,6 @@
           <div>
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600">Why this result</h3>
             <p id="assessmentSummary" class="text-xs text-slate-600 mt-1"></p>
-            <p id="headlineMatchScore" class="hidden text-sm font-bold text-emerald-700 mt-2">Publisher authenticity indicator: <span id="headlineMatchValue"></span>% <span class="text-[10px] font-medium text-slate-500">(trusted headline-match evidence; not a truth probability)</span></p>
           </div>
           <ul id="assessmentEvidence" class="space-y-2 text-xs text-slate-700"></ul>
         </div>
@@ -267,16 +266,17 @@
         <span id="gaugeLabel" class="text-[11px] font-semibold text-slate-400 mt-1">Model-estimated signal, not proof</span>
       </div>
 
-      <div id="authenticityChartPanel" class="hidden lg:col-span-4 min-h-64 flex-col items-center justify-center bg-slate-950/60 p-4 rounded-xl border border-emerald-900/60">
-        <span class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">Publisher match evidence</span>
-        <div class="relative w-48 h-48">
-          <canvas id="authenticityChart" aria-label="Publisher authenticity indicator chart"></canvas>
+      <div id="coveragePanel" class="hidden lg:col-span-4 min-h-64 flex-col items-center justify-center bg-slate-950/60 p-5 rounded-xl border border-emerald-900/60">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Publisher authenticity indicator</span>
+        <div class="relative mt-3 h-44 w-44 flex items-center justify-center">
+          <canvas id="publisherCoverageChart" aria-label="Share of relevant results from configured trusted publishers"></canvas>
           <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span id="authenticityChartValue" class="text-3xl font-black mono text-emerald-400">0%</span>
-            <span class="text-[10px] uppercase tracking-wider text-slate-400">indicator</span>
+            <strong id="publisherCoverageValue" class="text-3xl font-black mono text-emerald-300">0%</strong>
+            <span class="text-[10px] uppercase tracking-wider text-slate-400">of results</span>
           </div>
         </div>
-        <span id="authenticityChartLabel" class="text-[11px] text-center text-slate-400 mt-1">Based on trusted headline matches, not claim accuracy</span>
+        <span id="coverageSourceCount" class="mt-2 text-sm font-semibold text-slate-200">0 of 0 relevant results</span>
+        <p id="coverageSummary" class="mt-2 text-center text-xs leading-5 text-slate-400">Share of relevant results from configured trusted publishers. This is not a measure of whether the claim is true.</p>
       </div>
 
     </div>
@@ -285,12 +285,13 @@
     <div id="webVerificationBox" class="hidden bg-emerald-950/40 p-4 rounded-xl border border-emerald-800/60 space-y-2.5">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-          <span>🌐</span> Publisher references for authenticity check
+          Related reporting for this claim
         </span>
         <span id="webMatchBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700 font-bold mono">
           Search context
         </span>
       </div>
+      <p id="webEvidenceSummary" class="text-sm leading-6 text-slate-300">These results matched key terms from the claim. Review each source to see whether its evidence supports or challenges the claim.</p>
       <div id="webSourcesList" class="space-y-1.5 text-xs"></div>
     </div>
 
@@ -542,32 +543,23 @@ const gaugeChart = new Chart(document.getElementById("gaugeChart"), {
   }
 });
 
-const authenticityChart = new Chart(document.getElementById("authenticityChart"), {
+// Publisher coverage ring for news and screenshot scans. This is a source-share
+// indicator only; it must never be presented as the probability that a claim is true.
+const publisherCoverageChart = new Chart(document.getElementById("publisherCoverageChart"), {
   type: "doughnut",
   data: {
-    labels: ["Trusted publisher match indicator", "No trusted match evidence"],
     datasets: [{
       data: [0, 100],
-      backgroundColor: ["#10b981", "#1e293b"],
-      borderColor: "#0b1112",
-      borderWidth: 3,
-      hoverOffset: 3
+      backgroundColor: ["#34d399", "#1e293b"],
+      borderWidth: 0,
+      hoverOffset: 0
     }]
   },
   options: {
     responsive: true,
     maintainAspectRatio: false,
-    cutout: "76%",
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: context => context.dataIndex === 0
-            ? ` Publisher match indicator: ${context.raw}%`
-            : ` Remaining: ${context.raw}% (no match evidence; not a fake score)`
-        }
-      }
-    }
+    cutout: "78%",
+    plugins: { legend: { display: false }, tooltip: { enabled: false } }
   }
 });
 
@@ -772,51 +764,60 @@ function renderResult(data) {
   const faceFlagged = data.modality === "Image" && Number.isFinite(data.face_signal_pct) && data.face_signal_pct >= 50;
   const isNewsCheck = data.modality === "Text" || data.modality === "Screenshot" || data.modality === "URL";
   const isInconclusive = data.assessment?.status === "INCONCLUSIVE";
-  const authenticityPct = Math.max(0, Math.min(100, Number(data.assessment?.authenticity_score_pct) || 0));
+  const relatedCount = Number(data.assessment?.related_result_count ?? data.web_verification?.match_count ?? 0);
+  const taggedTrustedResultCount = Array.isArray(data.web_verification?.sources)
+    ? data.web_verification.sources.filter(source => source.trusted_source).length
+    : 0;
+  const reportedTrustedResultCount = Number(data.assessment?.trusted_relevant_result_count ?? data.web_verification?.trusted_relevant_result_count ?? 0);
+  const trustedResultCount = Math.min(relatedCount, Math.max(reportedTrustedResultCount, taggedTrustedResultCount));
+  const trustedShare = relatedCount > 0 ? Math.round((trustedResultCount / relatedCount) * 100) : 0;
   document.getElementById("gaugePanel").classList.toggle("hidden", isNewsCheck);
-  const authenticityPanel = document.getElementById("authenticityChartPanel");
-  authenticityPanel.classList.toggle("hidden", !isNewsCheck);
-  authenticityPanel.style.display = isNewsCheck ? "flex" : "none";
-  authenticityChart.data.datasets[0].data = [authenticityPct, 100 - authenticityPct];
-  authenticityChart.data.datasets[0].backgroundColor = [
-    data.assessment?.trusted_source_match_count > 0 ? "#10b981" : "#f59e0b",
-    "#1e293b"
-  ];
-  authenticityChart.resize();
-  authenticityChart.update();
-  document.getElementById("authenticityChartValue").textContent = `${authenticityPct}%`;
-  document.getElementById("authenticityChartValue").className = `text-3xl font-black mono ${data.assessment?.trusted_source_match_count > 0 ? "text-emerald-400" : "text-amber-400"}`;
-  document.getElementById("authenticityChartLabel").textContent = data.assessment?.trusted_source_match_count > 0
-    ? `Matched ${data.assessment.trusted_source_match_count} trusted publisher(s); this does not verify every claim`
-    : "No trusted headline match found; 0% means no match evidence, not proven false";
+  const coveragePanel = document.getElementById("coveragePanel");
+  coveragePanel.classList.toggle("hidden", !isNewsCheck);
+  coveragePanel.style.display = isNewsCheck ? "flex" : "none";
+  publisherCoverageChart.data.datasets[0].data = relatedCount > 0 ? [trustedShare, 100 - trustedShare] : [0, 100];
+  publisherCoverageChart.data.datasets[0].backgroundColor = [trustedShare > 0 ? "#34d399" : "#334155", "#1e293b"];
+  publisherCoverageChart.update();
+  document.getElementById("publisherCoverageValue").textContent = `${trustedShare}%`;
+  document.getElementById("coverageSourceCount").textContent = `${trustedResultCount} of ${relatedCount} relevant result${relatedCount === 1 ? "" : "s"} from configured trusted publisher${trustedResultCount === 1 ? "" : "s"}`;
+  document.getElementById("coverageSummary").textContent = "Share of relevant results from configured trusted publishers. This is not a measure of whether the claim is true.";
   document.getElementById("modalityBadge").textContent = data.modality;
 
   const pill = document.getElementById("verdictPill");
-  pill.textContent = data.assessment?.status || (isFake ? "ELEVATED SIGNALS" : "NO STRONG SIGNALS");
+  const statusCode = data.assessment?.status || "";
+  pill.textContent = statusCode === "ELEVATED_CLASSIFIER_SIGNAL"
+    ? "Elevated text-model signal"
+    : relatedCount > 0 ? "Relevant reporting found"
+      : isNewsCheck ? "No relevant reporting found"
+        : isFake ? "Elevated signals" : "No strong signals";
   pill.className = `px-3 py-1 text-xs font-bold rounded-lg uppercase tracking-wider ${
     isNewsCheck || isInconclusive || faceFlagged ? "bg-amber-950/70 text-amber-300 border border-amber-800" : isFake ? "bg-rose-950/80 text-rose-300 border border-rose-800" : "bg-emerald-950/80 text-emerald-300 border border-emerald-800"
   }`;
 
   const h = document.getElementById("verdictHeading");
   h.textContent = isNewsCheck
-    ? `Publisher authenticity indicator: ${data.assessment?.authenticity_score_pct ?? 0}%`
+    ? relatedCount > 0 ? "Relevant coverage found — worth reviewing" : "No relevant coverage found in this search"
     : isInconclusive || data.modality === "Image" ? data.prediction : `${data.prediction} (${data.confidence_pct}%)`;
-  const authenticityColor = data.assessment?.trusted_source_match_count > 0 ? "text-emerald-400" : "text-amber-400";
-  h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? authenticityColor : isInconclusive || faceFlagged ? "text-amber-400" : isFake ? "text-rose-400" : "text-emerald-400"}`;
+  h.className = `text-3xl font-extrabold tracking-tight ${isNewsCheck ? relatedCount > 0 ? "text-emerald-300" : "text-slate-200" : isInconclusive || faceFlagged ? "text-amber-400" : isFake ? "text-rose-400" : "text-emerald-400"}`;
 
   document.getElementById("verdictPreview").textContent = data.preview || "";
 
   const assessmentBox = document.getElementById("assessmentBox");
   if (data.assessment && Array.isArray(data.assessment.evidence)) {
-    document.getElementById("assessmentSummary").textContent = data.assessment.summary || "";
-    const headlineMatchScore = document.getElementById("headlineMatchScore");
-    if (Number.isFinite(data.assessment.authenticity_score_pct)) {
-      document.getElementById("headlineMatchValue").textContent = data.assessment.authenticity_score_pct;
-      headlineMatchScore.classList.remove("hidden");
-    } else {
-      headlineMatchScore.classList.add("hidden");
+    const legacyHeadlineMetric = data.assessment.evidence.some(item => /publisher authenticity indicator|headline.match/i.test(`${item.label || ""} ${item.detail || ""}`));
+    const assessmentSummary = document.getElementById("assessmentSummary");
+    const legacySummary = /headline.match|publisher authenticity indicator/i.test(data.assessment.summary || "");
+    assessmentSummary.textContent = legacySummary
+      ? `${trustedResultCount} of ${relatedCount} relevant results came from configured trusted publishers (${trustedShare}%). This is a source-coverage indicator, not a truth probability.`
+      : data.assessment.summary || "";
+    const assessmentEvidence = data.assessment.evidence.filter(item => !/publisher authenticity indicator|headline.match/i.test(`${item.label || ""} ${item.detail || ""}`));
+    if (legacyHeadlineMetric || isNewsCheck) {
+      assessmentEvidence.push({
+        label: "Publisher authenticity indicator",
+        detail: `${trustedResultCount} of ${relatedCount} relevant results came from configured trusted publishers (${trustedShare}%). This describes publisher coverage; it does not establish whether the claim is true.`
+      });
     }
-    document.getElementById("assessmentEvidence").innerHTML = data.assessment.evidence.map(item => `
+    document.getElementById("assessmentEvidence").innerHTML = assessmentEvidence.map(item => `
       <li><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.detail)}</li>
     `).join("");
     assessmentBox.classList.remove("hidden");
@@ -843,7 +844,16 @@ function renderResult(data) {
   const webBox = document.getElementById("webVerificationBox");
   if (data.web_verification && data.web_verification.corroborated) {
     webBox.classList.remove("hidden");
-    document.getElementById("webMatchBadge").textContent = `${data.web_verification.match_count} reference result(s)`;
+    webBox.querySelector("span").textContent = data.modality === "URL" ? "Independent coverage for this page" : "Related reporting for this claim";
+    document.getElementById("webMatchBadge").textContent = `${data.web_verification.match_count} related result(s)`;
+    const terms = [...new Set((data.web_verification.sources || []).flatMap(source => source.matched_terms || []))];
+    document.getElementById("webEvidenceSummary").textContent = terms.length
+      ? data.modality === "URL"
+        ? `Independent results matched these key terms from the page: ${terms.join(", ")}. Compare their details and context; matching coverage does not verify the page or every claim in it.`
+        : `Results matched these claim terms: ${terms.join(", ")}. They may support or challenge the claim; open each source to compare the details.`
+      : data.modality === "URL"
+        ? "These independent results matched key terms from the page. Compare the reported facts and context; this does not verify every claim on the page."
+        : "These results matched key terms from the claim. Open each source to see whether its evidence supports or challenges it.";
     const list = document.getElementById("webSourcesList");
     list.innerHTML = data.web_verification.sources.map(s => `
       <div class="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
@@ -852,8 +862,10 @@ function renderResult(data) {
             ${escapeHtml(s.title)}
           </a>
           <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(s.source)} &bull; ${escapeHtml(s.pubDate)}</span>
-          ${s.trusted_source && s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-emerald-400">Trusted headline match</span>' : s.trusted_source ? '<span class="ml-2 text-[10px] font-bold text-sky-400">Trusted publisher</span>' : s.headline_match ? '<span class="ml-2 text-[10px] font-bold text-slate-400">Headline match</span>' : ''}
-          ${s.is_fact_check ? '<span class="ml-2 text-[10px] font-bold text-amber-700">Fact-check / disputed-claim coverage</span>' : ''}
+          ${Array.isArray(s.matched_terms) && s.matched_terms.length ? `<span class="ml-2 text-[10px] text-slate-300">Matched terms: ${s.matched_terms.map(escapeHtml).join(", ")}</span>` : ''}
+          ${s.trusted_source ? '<span class="ml-2 text-[10px] font-bold text-emerald-300">Configured publisher</span>' : ''}
+          ${s.is_fact_check ? '<span class="ml-2 text-[10px] font-bold text-amber-300">Fact-check coverage</span>' : ''}
+          ${s.description ? `<p class="mt-1 text-[11px] leading-5 text-slate-300">${escapeHtml(s.description)}</p>` : ''}
         </div>
         <a href="${escapeHtml(safeHttpUrl(s.link))}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-slate-200 px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700 font-semibold whitespace-nowrap">
           Read Outlet &rarr;
@@ -922,7 +934,12 @@ function addRecentCheck(data) {
   const list = document.getElementById("recentChecks");
   const empty = document.getElementById("recentEmpty");
   const item = document.createElement("li");
-  const state = String(data.assessment?.status || (data.elevated_signals ? "Elevated signal" : "Review complete"));
+  const rawState = data.assessment?.status || "";
+  const state = rawState === "ELEVATED_CLASSIFIER_SIGNAL"
+    ? "Elevated text-model signal"
+    : rawState === "RELEVANT_REPORTING_FOUND" ? "Relevant reporting found"
+      : rawState === "NO_RELEVANT_REPORTING" ? "No relevant reporting found"
+        : String(rawState || (data.elevated_signals ? "Elevated model signal" : "Review complete"));
   const stateTone = /inconclusive|context|uncertain/i.test(state)
     ? "border-amber-800 bg-amber-950/40 text-amber-200"
     : /elevated|synthetic|fake/i.test(state)
@@ -971,11 +988,11 @@ async function callApi(url, options) {
     const data = await res.json();
     renderResult(data);
     addRecentCheck(data);
-    document.getElementById("resultNotice").textContent = data.web_verification
-      ? (data.assessment?.trusted_source_match_count > 0
-        ? `Headline matches at ${data.assessment.trusted_source_match_count} trusted publisher(s) contribute to the authenticity indicator. It does not verify every claim or prove a screenshot is unaltered.`
-        : "Authenticity indicator is 0% because no trusted publisher headline match was found. This means there is no match evidence, not that the article is proven false.")
-      : "This model score is an estimate and should be reviewed alongside the original media and its source.";
+    const relatedResults = Number(data.web_verification?.match_count || 0);
+    const trustedSources = Number(data.web_verification?.trusted_relevant_source_count || 0);
+    document.getElementById("resultNotice").textContent = relatedResults
+      ? `Found ${relatedResults} relevant result(s), including ${trustedSources} configured trusted publisher(s). This coverage may support the claim, but matching terms alone do not establish that it is true. Review the linked evidence and context.`
+      : "No relevant results matched enough of the claim's key terms in this search. The claim remains unverified; no match does not mean it is false.";
   } catch (e) {
     document.getElementById("loadingBar").classList.add("hidden");
     errorBox.textContent = `Analysis could not be completed: ${e.message}`;

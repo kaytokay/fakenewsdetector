@@ -575,11 +575,10 @@ def resolution_ai_penalty(width: int, height: int) -> float:
     return 0.0
 
 
-def verify_news_on_web(text: str) -> dict:
+def verify_news_on_web(text: str, strict_relevance: bool = False) -> dict:
     """
-    Live Fact-Checking & Web Grounding via Google News RSS Search.
-    Extracts core named entities and nouns, filters out clickbait and sensationalist tokens,
-    and requires semantic title corroboration to prevent false positives.
+    Find related reporting using claim-term overlap in titles and RSS descriptions.
+    Relevance is a discovery signal for human review, not proof that a claim is true.
     """
     # 1. Strip UI crumbs, clickbait prefixes, dates, and non-alphanumeric noise
     cleaned = re.sub(r'Home\s*>\s*[^>]+>', ' ', text)
@@ -592,7 +591,7 @@ def verify_news_on_web(text: str) -> dict:
         ' ', cleaned, flags=re.I
     )
     cleaned = re.sub(r'\b\d{1,2}[\.:]\d{2}\b', ' ', cleaned)
-    cleaned = re.sub(r'[^\w\s]', ' ', cleaned)
+    cleaned = re.sub(r'[^\w\s.]', ' ', cleaned)
 
     # 2. Extract key nouns, named entities, verbs, numbers, and descriptive terms
     blob = TextBlob(cleaned)
@@ -605,19 +604,29 @@ def verify_news_on_web(text: str) -> dict:
     }
 
     important_tokens = []
+    named_entity_tokens = []
     for w, pos in blob.tags:
         w_lower = w.lower()
         if (pos.startswith('NN') or pos.startswith('VB') or pos.startswith('JJ') or pos in ('CD',)) and len(w) >= 3 and w_lower not in stop:
             if w_lower not in [x.lower() for x in important_tokens]:
                 important_tokens.append(w)
+            if strict_relevance and (pos == "NNP" or pos == "NNPS") and w_lower not in [x.lower() for x in named_entity_tokens]:
+                named_entity_tokens.append(w)
 
     if len(important_tokens) < 2:
         important_tokens = [w for w in cleaned.split() if len(w) >= 3 and w.lower() not in stop][:4]
 
-    query_tokens = important_tokens[:5]
+    if strict_relevance:
+        # URL checks must be anchored by distinctive page details, not generic
+        # topic words (for example, two unrelated earthquake stories).
+        query_tokens = (named_entity_tokens[:4] + [
+            token for token in important_tokens if token.lower() not in {item.lower() for item in named_entity_tokens[:4]}
+        ])[:8]
+    else:
+        query_tokens = important_tokens[:5]
     query = ' '.join(query_tokens).strip()
     if not query:
-        return {"corroborated": False, "direct_match": False, "trusted_headline_match": False, "trusted_source_match_count": 0, "authenticity_score_pct": 0, "match_count": 0, "sources": [], "query": ""}
+        return {"has_relevant_results": False, "corroborated": False, "evidence_status": "NO_RELEVANT_REPORTING", "trusted_relevant_source_count": 0, "trusted_relevant_result_count": 0, "match_count": 0, "sources": [], "query": ""}
 
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -642,11 +651,6 @@ def verify_news_on_web(text: str) -> dict:
                 "the hindu", "indian express", "the indian express",
             }
             valid_sources = []
-            input_tokens = {
-                token.lower() for token in re.findall(r"[a-z0-9]+", text.lower())
-                if len(token) > 2 and token.lower() not in stop
-            }
-
             for item in items[:8]:
                 title = item.findtext("title", default="").strip()
                 link = item.findtext("link", default="").strip()
@@ -656,64 +660,67 @@ def verify_news_on_web(text: str) -> dict:
                 if not source_name and "-" in title:
                     source_name = title.split("-")[-1].strip()
 
-                t_lower = title.lower()
-                is_debunk = any(dw in t_lower for dw in debunk_words)
-                headline = re.split(r"\s[-–|]\s", title, maxsplit=1)[0]
-                headline_tokens = {
-                    token.lower() for token in re.findall(r"[a-z0-9]+", headline.lower())
-                    if len(token) > 2 and token.lower() not in stop
-                }
-                title_overlap = (
-                    len(headline_tokens & input_tokens) / len(headline_tokens)
-                    if len(headline_tokens) >= 4 else 0.0
-                )
-                headline_match = title_overlap >= 0.60
+                description = BeautifulSoup(item.findtext("description", default=""), "html.parser").get_text(" ", strip=True)
+                result_text = f"{title} {description}"
+                result_tokens = {token.lower() for token in re.findall(r"\d+(?:\.\d+)?|[a-z]+", result_text.lower())}
+                result_lower = result_text.lower()
+                is_debunk = any(dw in result_lower for dw in debunk_words)
                 normalized_source = re.sub(r"[^a-z0-9]+", " ", source_name.lower()).strip()
                 trusted_source = normalized_source in trusted_publishers
 
-                # Match key entity tokens
-                matches = sum(
-                    1 for q in query_tokens
-                    if (q.lower() in t_lower or (len(q) > 4 and q[:4].lower() in t_lower))
-                )
+                # Compare claim terms against the full result text, not the wording
+                # or order of its headline. Allow simple singular/plural variation.
+                matched_terms = [
+                    q for q in query_tokens
+                    if q.lower() in result_tokens
+                    or (q.isalpha() and q.lower().endswith("s") and q.lower()[:-1] in result_tokens)
+                    or (q.isalpha() and (q.lower() + "s") in result_tokens)
+                ]
+                matches = len(matched_terms)
 
                 # Keep matching debunks and fact-checks as references too; dropping these
                 # would hide precisely the sources a user needs to assess a disputed claim.
                 overlap_ratio = matches / len(query_tokens) if query_tokens else 0.0
-                if (matches >= 3 or overlap_ratio >= 0.6) and matches >= 2:
+                if strict_relevance:
+                    named_anchors = {token.lower() for token in named_entity_tokens[:4]}
+                    has_named_anchor = not named_anchors or any(term.lower() in named_anchors for term in matched_terms)
+                    is_relevant_match = matches >= min(3, len(query_tokens)) and overlap_ratio >= 0.6 and has_named_anchor
+                else:
+                    is_relevant_match = (matches >= 2 or (len(query_tokens) == 1 and matches == 1)) and (matches >= 3 or overlap_ratio >= 0.6)
+                if is_relevant_match:
                     valid_sources.append({
                         "title": title,
+                        "description": description[:500],
                         "link": link,
                         "source": source_name,
                         "pubDate": pub_date,
                         "is_fact_check": is_debunk,
-                        "headline_match": headline_match,
-                        "headline_match_pct": round(title_overlap * 100, 1),
+                        "matched_terms": matched_terms,
+                        "term_match_pct": round(overlap_ratio * 100, 1),
                         "trusted_source": trusted_source,
                     })
 
-            is_corroborated = len(valid_sources) >= 1
-            trusted_headline_sources = {
+            relevant_sources = {
                 source["source"].lower()
                 for source in valid_sources
-                if source["trusted_source"] and source["headline_match"]
+                if source["trusted_source"]
             }
-            trusted_match_count = len(trusted_headline_sources)
-            # This is a publisher-match evidence indicator, not a calibrated truth probability.
-            authenticity_score = min(95, 75 + 10 * (trusted_match_count - 1)) if trusted_match_count else 0
+            trusted_source_count = len(relevant_sources)
+            trusted_result_count = sum(1 for source in valid_sources if source["trusted_source"])
+            is_relevant = len(valid_sources) >= 1
             return {
-                "corroborated": is_corroborated,
-                "direct_match": trusted_match_count > 0,
-                "trusted_headline_match": trusted_match_count > 0,
-                "trusted_source_match_count": trusted_match_count,
-                "authenticity_score_pct": authenticity_score,
+                "has_relevant_results": is_relevant,
+                "corroborated": is_relevant,
+                "evidence_status": "RELEVANT_REPORTING_FOUND" if is_relevant else "NO_RELEVANT_REPORTING",
+                "trusted_relevant_source_count": trusted_source_count,
+                "trusted_relevant_result_count": trusted_result_count,
                 "match_count": len(valid_sources),
-                "sources": valid_sources[:4],
+                "sources": valid_sources,
                 "query": query
             }
     except Exception as e:
         print(f"[WARN] Live news search notice: {e}")
-        return {"corroborated": False, "direct_match": False, "trusted_headline_match": False, "trusted_source_match_count": 0, "authenticity_score_pct": 0, "match_count": 0, "sources": [], "query": query}
+        return {"has_relevant_results": False, "corroborated": False, "evidence_status": "NO_RELEVANT_REPORTING", "trusted_relevant_source_count": 0, "trusted_relevant_result_count": 0, "match_count": 0, "sources": [], "query": query}
 def compute_image_forensics(image: Image.Image) -> dict:
     """
     Real Pixel-Level Deep Forensic Analysis (Paper 1 & Paper 4):
@@ -920,7 +927,7 @@ def record_telemetry(
 # ENDPOINT 1 — News Text Analysis (BERT + Live Web Grounding + Sentiment)
 # ===========================================================================
 @app.post("/analyze-text")
-async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Text"):
+async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Text", web_query_text: str | None = None):
     if modality_override not in {"Text", "URL"}:
         raise HTTPException(status_code=400, detail="Unsupported text analysis modality.")
     classifier = ml_models.get("text_classifier")
@@ -932,18 +939,20 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
         raise HTTPException(status_code=400, detail="Text must be at least 10 characters.")
 
     # 1. Live Web Fact-Checking Grounding
-    web_check = await run_in_threadpool(verify_news_on_web, clean)
-    direct_match = bool(web_check.get("direct_match"))
+    web_check = await run_in_threadpool(
+        verify_news_on_web,
+        web_query_text or clean,
+        strict_relevance=(modality_override == "URL"),
+    )
 
     # 2. BERT stylistic classification
     res = await run_in_threadpool(classifier, clean, truncation=True, max_length=512)
     pred = res[0]
     raw_fake_prob = text_fake_score(pred, classifier)
 
-    # Related coverage is useful context, but a search result cannot verify a claim.
     fake_prob = raw_fake_prob
     is_fake = fake_prob >= 50.0
-    verdict = "Elevated misinformation signals" if is_fake else ("Trusted publisher headline match found" if direct_match else "No trusted publisher headline match found")
+    verdict = "Elevated misinformation signals" if is_fake else "No strong misinformation signals"
     conf_pct = fake_prob if is_fake else round(100 - fake_prob, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(clean)
@@ -952,15 +961,31 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
         "Text Classifier Pattern Score (%)": fake_prob,
         "Subjectivity / Bias (%)": subjectivity,
     }
+    related_count = web_check.get("match_count", 0)
+    trusted_count = web_check.get("trusted_relevant_source_count", 0)
+    trusted_result_count = web_check.get("trusted_relevant_result_count", 0)
+    if modality_override == "URL":
+        related_summary = (
+            f"Found {related_count} independent report(s) matching key details from this page, including {trusted_count} configured trusted publisher(s). Compare the reported facts and context; matching coverage does not verify the page or every claim in it."
+            if related_count else
+            "No sufficiently relevant independent reports were found for this page in this search. The page remains unverified; no match does not mean its claims are false."
+        )
+    else:
+        related_summary = (
+            f"Found {related_count} relevant result(s) matching key claim terms, including {trusted_count} configured trusted publisher(s). This makes the claim worth checking against those sources; it does not prove the claim."
+            if related_count else
+            "No relevant results matched enough of the claim's key terms in this search. That leaves the claim unverified; it does not mean the claim is false."
+        )
     assessment = {
-        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("TRUSTED_PUBLISHER_MATCH" if direct_match else "NO_TRUSTED_PUBLISHER_MATCH"),
-        "authenticity_score_pct": web_check.get("authenticity_score_pct", 0),
-        "trusted_source_match_count": web_check.get("trusted_source_match_count", 0),
-        "summary": f"A headline match was found at {web_check.get('trusted_source_match_count', 0)} trusted publisher(s). The percentage reflects publisher/headline match evidence only; it does not verify every claim." if direct_match else "No headline match was found at a configured trusted publisher. The 0% indicator means no trusted match evidence was found; it does not mean the article is false.",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else web_check.get("evidence_status", "NO_RELEVANT_REPORTING"),
+        "related_result_count": related_count,
+        "trusted_relevant_source_count": trusted_count,
+        "trusted_relevant_result_count": trusted_result_count,
+        "summary": related_summary,
         "evidence": [
             {"label": "Text classifier signal", "detail": f"{fake_prob}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
-            {"label": "Publisher authenticity indicator", "detail": f"{web_check.get('authenticity_score_pct', 0)}% based on headline matches at {web_check.get('trusted_source_match_count', 0)} configured trusted publisher(s). This is a source-match indicator, not a truth probability."},
-            {"label": "Claim accuracy", "detail": "A matching article does not confirm every factual claim it contains."},
+            {"label": "Independent coverage" if modality_override == "URL" else "Related reporting", "detail": related_summary},
+            {"label": "What this means", "detail": "Matching key terms identifies coverage worth comparing. It can support or challenge individual details, but does not establish whether the page or all its claims are true." if modality_override == "URL" else "Matching key terms identifies relevant coverage that may support or challenge the claim. Open the sources and compare the details before drawing a conclusion."},
         ],
     }
     record_telemetry(modality_override, is_fake, conf_pct, sentiment, breakdown)
@@ -972,7 +997,7 @@ async def analyze_text_endpoint(payload: TextInput, modality_override: str = "Te
         "confidence_pct": conf_pct,
         "sentiment": sentiment,
         "polarity": polarity,
-        "preview": clean[:160] + ("…" if len(clean) > 160 else ""),
+        "preview": (web_query_text[:160] + ("…" if len(web_query_text) > 160 else "")) if modality_override == "URL" and web_query_text else clean[:160] + ("…" if len(clean) > 160 else ""),
         "metadata": {
             "Character_Count": len(clean),
             "Word_Count": len(clean.split()),
@@ -1016,7 +1041,6 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
 
     # B — Live Web Grounding / Fact-Checking Search
     web_check = await run_in_threadpool(verify_news_on_web, text)
-    direct_match = bool(web_check.get("direct_match"))
 
     # C — BERT stylistic analysis
     t_res = await run_in_threadpool(t_clf, text, truncation=True, max_length=512)
@@ -1032,7 +1056,7 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
     text_fake = round(raw_text_fake, 2)
     combined_fake = text_fake
     is_fake = text_fake >= 50.0
-    verdict = "Elevated misinformation signals" if is_fake else ("Trusted publisher headline match found" if direct_match else "No trusted publisher headline match found")
+    verdict = "Elevated misinformation signals" if is_fake else "No strong misinformation signals"
     conf_pct = combined_fake if is_fake else round(100.0 - combined_fake, 2)
 
     sentiment, polarity, subjectivity = analyze_sentiment(text)
@@ -1052,15 +1076,25 @@ async def analyze_screenshot_endpoint(file: UploadFile = File(...)):
         "Whole_Screenshot_AI_Image_Signal": f"{raw_visual_fake}% (not used for claim verdict)",
     }
 
+    related_count = web_check.get("match_count", 0)
+    trusted_count = web_check.get("trusted_relevant_source_count", 0)
+    trusted_result_count = web_check.get("trusted_relevant_result_count", 0)
+    related_summary = (
+        f"Found {related_count} relevant result(s) matching key OCR claim terms, including {trusted_count} configured trusted publisher(s). This makes the claim worth checking against those sources; it does not prove the claim or the screenshot's authenticity."
+        if related_count else
+        "No relevant results matched enough of the extracted claim's key terms in this search. That leaves the claim unverified; it does not mean the claim or screenshot is false."
+    )
     assessment = {
-        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else ("TRUSTED_PUBLISHER_MATCH" if direct_match else "NO_TRUSTED_PUBLISHER_MATCH"),
-        "authenticity_score_pct": web_check.get("authenticity_score_pct", 0),
-        "trusted_source_match_count": web_check.get("trusted_source_match_count", 0),
-        "summary": f"A headline match was found at {web_check.get('trusted_source_match_count', 0)} trusted publisher(s). This supports publication by those outlets, but does not prove the screenshot is unaltered, the photo is genuine, or every claim is accurate." if direct_match else "No headline match was found at a configured trusted publisher. The 0% indicator means no trusted match evidence was found; it does not mean the article is false or that the screenshot is altered.",
+        "status": "ELEVATED_CLASSIFIER_SIGNAL" if is_fake else web_check.get("evidence_status", "NO_RELEVANT_REPORTING"),
+        "related_result_count": related_count,
+        "trusted_relevant_source_count": trusted_count,
+        "trusted_relevant_result_count": trusted_result_count,
+        "summary": related_summary,
         "evidence": [
             {"label": "OCR text classifier signal", "detail": f"{text_fake}% pattern score from a learned fake/real text classifier. This is not a probability that the claim is false."},
             {"label": "Whole-page image classifier", "detail": f"{raw_visual_fake}% image-pattern score. It evaluates the complete screenshot, not a separately cropped news photo, so it does not affect the result."},
-            {"label": "Publisher authenticity indicator", "detail": f"{web_check.get('authenticity_score_pct', 0)}% based on headline matches at {web_check.get('trusted_source_match_count', 0)} configured trusted publisher(s). This is a source-match indicator, not a truth probability."},
+            {"label": "Related reporting", "detail": related_summary},
+            {"label": "What this means", "detail": "Matching key terms identifies relevant coverage that may support or challenge the claim. Open the sources and compare the details before drawing a conclusion."},
         ],
     }
 
@@ -1485,11 +1519,33 @@ async def analyze_url_endpoint(payload: URLInput):
 
     # Route B — scrape news article text
     soup = BeautifulSoup(resp.text, "html.parser")
+    page_title = ""
+    title_meta = soup.find("meta", attrs={"property": "og:title"}) or soup.find("meta", attrs={"name": "twitter:title"})
+    if title_meta and title_meta.get("content"):
+        page_title = title_meta["content"].strip()
+    elif soup.title:
+        page_title = soup.title.get_text(" ", strip=True)
+    description_meta = (
+        soup.find("meta", attrs={"property": "og:description"})
+        or soup.find("meta", attrs={"name": "description"})
+        or soup.find("meta", attrs={"name": "twitter:description"})
+    )
+    page_description = description_meta.get("content", "").strip() if description_meta else ""
     paras = [p.get_text() for p in soup.find_all("p")]
     article = " ".join(paras).strip() or soup.get_text(separator=" ", strip=True)
     if len(article) < 10:
         raise HTTPException(status_code=400, detail="Could not extract sufficient article text from URL (minimum 10 characters required).")
-    return await analyze_text_endpoint(TextInput(text=article[:2500]), modality_override="URL")
+    # Put publisher-written title and summary first so key terms for cross-source
+    # discovery come from the article's central subject, not incidental body text.
+    web_query_text = " ".join(part for part in (page_title, page_description, article[:700]) if part)
+    result = await analyze_text_endpoint(
+        TextInput(text=article[:2500]),
+        modality_override="URL",
+        web_query_text=web_query_text or article[:700],
+    )
+    result["metadata"]["Article_Title"] = page_title or "Title unavailable"
+    result["metadata"]["Source_Domain"] = urllib.parse.urlparse(payload.url).hostname or "Unknown"
+    return result
 
 
 # ===========================================================================
