@@ -9,6 +9,7 @@ from transformers import pipeline
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from .state import ml_models
 from .services.vision import load_whole_image_detector
 from .routes.api import router
@@ -93,6 +94,7 @@ app = FastAPI(
     version="2.1.0",
     lifespan=lifespan,
 )
+app.mount("/assets", StaticFiles(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")), name="assets")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",") if origin.strip()],
